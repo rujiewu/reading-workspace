@@ -211,8 +211,13 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       const response = await gateway('/api/login', 'POST', { password: body?.password }, true);
       if (!response.ok) return response;
       const connected = await response.clone().json();
-      if (!connected.authenticated || !validSession(connected)) throw new Error('登录未完成，请重新输入口令。');
-      session = { token: connected.token, expires_at: connected.expires_at };
+      // The gateway returns Unix seconds; current-tab storage uses an ISO date.
+      const deadline = new Date(typeof connected.expires_at === 'number' && Number.isSafeInteger(connected.expires_at)
+        ? connected.expires_at * 1000 : typeof connected.expires_at === 'string' ? connected.expires_at : NaN);
+      const authenticatedSession = { token: connected.token,
+        expires_at: Number.isFinite(deadline.getTime()) ? deadline.toISOString() : '' };
+      if (!connected.authenticated || !validSession(authenticatedSession)) throw new Error('登录未完成，请重新输入口令。');
+      session = authenticatedSession;
       try { storage().setItem(tokenKey, JSON.stringify(session)); } catch { /* Current-tab memory login remains valid. */ }
       return response;
     }
