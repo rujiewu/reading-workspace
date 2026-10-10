@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "kind": "PUBLIC_ALLOWLIST_ONLY",
   "repository": "rujiewu/ReadingAgent",
-  "source_commit": "c39a3172fabf2ee18be1478077f2d48fc10bb73d",
+  "source_commit": "e7036ff892a3af3e0ecc6601d0c7b5e22d734819",
   "base": "/reading-workspace",
   "modules": {
     "reading": 11,
@@ -22,5 +22,7 @@
   ],
   "private_records_exported": false,
   "snapshot_exported": false,
-  "investment_personal_playbooks_exported": false
+  "investment_personal_playbooks_exported": false,
+  "transport": "shared",
+  "api_base": "https://reading-workspace-api-rujiewuac-8230.vercel.app"
 }

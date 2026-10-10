@@ -219,7 +219,7 @@ window.HUB_GITHUB_TRANSPORT = (config, dependencies = {}) => {
   } });
 };
 
-if (window.HUB_GITHUB_CONFIG) {
+if (window.HUB_GITHUB_CONFIG && !window.HUB_SHARED_CONFIG && window.HUB_GITHUB_CONFIG.transport !== 'shared') {
   window.HUB_REMOTE = window.HUB_GITHUB_TRANSPORT(window.HUB_GITHUB_CONFIG);
   document.addEventListener('DOMContentLoaded', () => {
     const label = document.querySelector('label[for=password]');

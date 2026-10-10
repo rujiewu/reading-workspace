@@ -6,17 +6,19 @@
     <meta name="color-scheme" content="light dark">
     <meta name="referrer" content="same-origin">
     <meta name="robots" content="noindex, nofollow, noarchive">
-    <meta name="description" content="阅读、交易与学习资料的个人知识工作台。">
+    <meta name="description" content="阅读、学习、交易研究与投资决策的知识工作台。">
     <title>知识工作台</title>
     <link rel="stylesheet" href="/reading-workspace/assets/app.css">
     <link rel="stylesheet" href="/reading-workspace/assets/workspace.css">
-    <script>window.HUB_SITE_BASE="/reading-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/ReadingAgent", "module": "investment", "base": "/reading-workspace"};</script><script src="/reading-workspace/assets/modules.js" defer></script>
+    <script>window.HUB_SITE_BASE="/reading-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/ReadingAgent", "module": "investment", "base": "/reading-workspace", "transport": "shared", "apiBase": "https://reading-workspace-api-rujiewuac-8230.vercel.app"};</script><script src="/reading-workspace/assets/modules.js" defer></script>
     <script src="/reading-workspace/assets/study.js" defer></script>
     <script src="/reading-workspace/assets/study-navigation.js" defer></script>
     <script src="/reading-workspace/assets/workspace-state.js" defer></script>
     <script src="/reading-workspace/assets/evidence.js" defer></script>
+    <script src="/reading-workspace/assets/programme.js" defer></script>
     <script src="/reading-workspace/assets/book-study.js" defer></script>
     <script src="/reading-workspace/assets/github-transport.js" defer></script>
+    <script src="/reading-workspace/assets/shared-transport.js" defer></script>
     <script src="/reading-workspace/assets/app.js" defer></script>
   </head>
   <body>
@@ -30,11 +32,10 @@
     <main id="login-view" class="login-view" hidden>
       <section class="login-card" aria-labelledby="login-title">
         <div class="brand-mark" aria-hidden="true">知</div>
-        <p class="eyebrow">PERSONAL KNOWLEDGE HUB</p>
-        <h1 id="login-title">回到你的知识工作台</h1>
-        <p class="login-copy">阅读、练习与对话都保留在你的私有空间。</p>
+        <h1 id="login-title">知识工作台</h1>
+        <p class="login-copy">阅读、练习与对话，接着上次继续。</p>
         <form id="login-form" class="login-form">
-          <label for="password">访问密码</label>
+          <label for="password">访问口令</label>
           <div class="password-row">
             <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
             <button id="login-submit" class="primary-button" type="submit">进入</button>
@@ -57,7 +58,7 @@
           <a href="/reading-workspace/investment/" data-module="investment">投资</a>
         </nav>
         <div class="header-actions">
-          <span>私人空间</span>
+          <span>学习空间</span>
           <button id="focus-toggle" type="button" aria-label="进入专注阅读，收起目录和讨论" aria-pressed="false">专注阅读</button>
           <button id="theme-toggle" type="button" aria-label="切换到深色模式" aria-pressed="false">深色</button>
           <button id="logout" type="button" hidden>退出</button>
@@ -65,15 +66,15 @@
       </header>
 
       <nav class="pane-switcher" aria-label="工作区视图">
-        <button type="button" data-pane="catalog" aria-pressed="false">资料目录</button>
-        <button type="button" data-pane="read" aria-pressed="true">阅读与练习</button>
+        <button type="button" data-pane="catalog" aria-pressed="false">目录</button>
+        <button type="button" data-pane="read" aria-pressed="true">正文</button>
         <button type="button" data-pane="chat" aria-pressed="false">讨论</button>
       </nav>
 
       <main id="main-content" class="workspace" tabindex="-1">
         <section class="library-panel" aria-labelledby="library-title">
           <div class="module-heading">
-            <p id="module-eyebrow" class="eyebrow"></p>
+            <p id="module-eyebrow" class="sr-only"></p>
             <h1 id="library-title"></h1>
             <p id="module-description" class="module-description"></p>
           </div>
@@ -113,7 +114,7 @@
                 <button type="button" role="tab" id="tab-practice" data-detail-view="practice" aria-controls="exercise-panel" aria-selected="false" tabindex="-1">练习与笔记</button>
               </div>
               <div id="study-controls" class="study-controls">
-                <label for="study-section">正文位置</label>
+                <label for="study-section">章节</label>
                 <select id="study-section" aria-label="跳到正文位置"></select>
                 <span id="study-position" title="正文位置，不代表学习完成度"></span>
               </div>
@@ -126,29 +127,28 @@
                 <div id="resource-links" class="resource-links"></div>
                 <div id="evidence-ledger" class="evidence-ledger"></div>
               </section>
-              <button id="study-practice" class="practice-start" type="button">写下理解，做一次练习 →</button>
+              <button id="study-practice" class="practice-start" type="button">练习与笔记 →</button>
               <nav id="material-sequence" class="material-sequence" aria-label="同一学习路径的相邻资料" hidden></nav>
             </section>
             <section id="exercise-panel" class="exercise-panel" role="tabpanel" aria-labelledby="tab-practice" tabindex="0" hidden>
               <div class="section-heading">
                 <div>
-                  <h3 id="exercise-title">想一想，再写下来</h3>
+                  <h3 id="exercise-title">练习回答</h3>
                 </div>
                 <span class="private-badge">本机保存</span>
               </div>
               <p id="exercise-prompt" class="exercise-prompt"></p>
               <div class="practice-tools">
-                <button id="insert-worksheet" class="secondary-button" type="button">加入思考提纲</button>
-                <span>追加到回答末尾，不覆盖已有笔记。</span>
+                <button id="insert-worksheet" class="secondary-button" type="button" title="追加到回答末尾，保留已有笔记">加入提纲</button>
               </div>
               <label for="note-answer" class="answer-label">练习回答</label>
               <textarea id="note-answer" rows="7" placeholder="在这里写下你的理解、疑问或推演…"></textarea>
               <div class="note-actions">
                 <button id="save-note" class="secondary-button" type="button">保存回答</button>
-                <button id="discuss-note" class="secondary-button" type="button">保存并准备讨论</button>
+                <button id="discuss-note" class="secondary-button" type="button" title="保存回答并准备问题，确认后再发送">准备讨论</button>
               </div>
               <p id="note-status" role="status" aria-live="polite">回答保存在本机；发送问题时，会连同当前资料用于讨论。</p>
-              <p class="practice-disclaimer">只准备问题，不自动发送。发送后，当前资料与已保存回答会交给模型讨论。</p>
+              <p class="practice-disclaimer">发送问题时附上当前资料与已保存回答。</p>
               <div id="practice-guide" class="practice-guide"></div>
             </section>
           </div>
@@ -157,7 +157,7 @@
         <aside class="chat-panel" aria-labelledby="chat-title">
           <header class="chat-header">
             <div>
-              <h2 id="chat-title">深入讨论</h2>
+              <h2 id="chat-title">讨论</h2>
             </div>
             <button id="new-session" class="icon-text-button" type="button" title="新建对话">
               <span aria-hidden="true">＋</span><span>新对话</span>
@@ -166,7 +166,7 @@
 
           <div class="context-strip">
             <span class="context-dot" aria-hidden="true"></span>
-            <span>当前上下文</span>
+            <span>围绕</span>
             <strong id="chat-context">尚未选择资料</strong>
           </div>
 
@@ -180,7 +180,7 @@
 
           <div id="chat-messages" class="chat-messages" aria-live="polite" aria-label="对话消息">
             <div id="chat-welcome" class="chat-welcome">
-              <p>选正文中的一个问题深入讨论，也可以直接说出你卡住的地方。</p>
+              <p>哪一步还没想清楚？</p>
             </div>
           </div>
 

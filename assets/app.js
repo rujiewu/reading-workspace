@@ -23,6 +23,7 @@
     bookStudy: null,
     bookLoadToken: 0,
     positionReady: false,
+    refreshingShared: false,
   };
 
   const elements = {};
@@ -199,6 +200,15 @@
         elements["resource-search"].focus();
       }
     });
+    if (window.HUB_REMOTE?.kind === "shared") {
+      window.addEventListener("focus", refreshSharedState);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") refreshSharedState();
+      });
+      window.setInterval(() => {
+        if (document.visibilityState === "visible") refreshSharedState();
+      }, 60000);
+    }
   }
 
   async function checkAuthentication() {
@@ -231,6 +241,7 @@
         allowUnauthenticated: true,
       });
       elements.password.value = "";
+      elements.logout.hidden = false;
       showApp();
       await loadWorkspace();
     } catch (error) {
@@ -332,6 +343,49 @@
       if (error instanceof AuthRequiredError) return;
       setCatalogStatus("同步失败");
       renderWorkspaceError(error.message || "资料加载失败，请刷新后重试。");
+    }
+  }
+
+  async function refreshSharedState() {
+    if (window.HUB_REMOTE?.kind !== "shared" || elements["app-shell"].hidden
+        || state.refreshingShared || state.sending || state.savingNote) return;
+    state.refreshingShared = true;
+    const resourceId = state.selectedId;
+    const sessionId = state.sessionId;
+    const resourceToken = state.loadingResourceToken;
+    const sessionToken = state.sessionLoadToken;
+    const requestToken = state.chatRequestToken;
+    const canRefreshNote = state.noteReady && !noteIsDirty();
+    try {
+      await refreshSessions();
+      if (canRefreshNote && resourceId) {
+        const record = await api(`/api/notes?module=${encodeURIComponent(state.module)}&resource_id=${encodeURIComponent(resourceId)}`,
+          { preserveVersion: true });
+        // Editing or navigating while the network request runs preserves both
+        // the draft and its original SHA, so an unseen update cannot be erased.
+        if (resourceToken === state.loadingResourceToken && resourceId === state.selectedId
+            && state.noteReady && !noteIsDirty() && !state.savingNote) {
+          const answer = typeof record?.answer === "string" ? record.answer : "";
+          window.HUB_REMOTE.acceptNoteSnapshot(state.module, resourceId, record);
+          if (answer !== state.noteBaseline) elements["note-status"].textContent = "已同步最新回答。";
+          elements["note-answer"].value = answer;
+          state.noteBaseline = answer;
+        }
+      }
+      if (sessionId && sessionId === state.sessionId && !state.sending) {
+        const record = await api(`/api/sessions/${encodeURIComponent(sessionId)}?module=${encodeURIComponent(state.module)}`);
+        if (sessionToken === state.sessionLoadToken && requestToken === state.chatRequestToken
+            && sessionId === state.sessionId && resourceId === state.selectedId && !state.sending
+            && record.resource_id === state.sessionResourceId) {
+          renderMessages(Array.isArray(record.messages) ? record.messages : []);
+        }
+      }
+      await window.HUB_REMOTE.flushNavigation().catch(() => {});
+      await window.HUB_REMOTE.restoreNavigation().catch(() => {});
+    } catch (error) {
+      if (!(error instanceof AuthRequiredError)) setCatalogStatus("同步暂未完成");
+    } finally {
+      state.refreshingShared = false;
     }
   }
 
@@ -740,7 +794,7 @@
       if (option.value === "extensions") jumpTo("links-title");
       else selectStudy(Number(option.value));
       if (option.value !== "0") {
-        elements["resume-status"].textContent = "已恢复上次正文位置 · 不代表学习完成";
+        elements["resume-status"].textContent = "已恢复上次正文位置";
         elements["resume-status"].hidden = false;
       }
     }
@@ -798,13 +852,16 @@
     elements["study-section"].value = "0";
     if (!count) body.append(make("p", "", "这项资料暂时没有正文说明。"));
     const item = findItem(state.selectedId);
+    body.dataset.kind = item?.kind || "";
     state.studySections.forEach((section, index) => {
       const part = make("section", "study-part");
       const heading = make("h3", "study-heading", section.title);
+      if (index === 0 && section.title === item?.title) heading.classList.add("sr-only");
       heading.id = `study-heading-${index}`;
       heading.tabIndex = -1;
       part.append(heading);
       renderStructuredText(part, section.body);
+      if (index === 0 && item?.kind === "reading_program") window.HUB_PROGRAM?.render(part, item.evidence);
       if (state.module === "learning") {
         const resourceLinks = make("div", "section-resources");
         (item.links || []).filter(link => section.body.includes(link.label)).forEach(link => {
@@ -860,7 +917,7 @@
     panel.replaceChildren();
     elements["insert-worksheet"].hidden = !guide;
     elements["discuss-note"].hidden = !guide;
-    document.getElementById("exercise-title").textContent = guide?.title || "想一想，再写下来";
+    document.getElementById("exercise-title").textContent = guide?.title || "练习回答";
     if (!guide) return;
     panel.append(make("h4", "", "作答提示与自检"));
     const steps = make("ol", "practice-steps");
@@ -973,7 +1030,7 @@
       state.noteReady = true;
       elements["note-status"].textContent = elements["note-answer"].value
         ? "已载入你上次保存的回答。"
-        : "回答保存在本机；发送问题时，会连同当前资料用于讨论。";
+        : window.HUB_REMOTE?.kind === "shared" ? "回答与对话共享保存。" : "回答保存在本机；发送问题时，会连同当前资料用于讨论。";
     } catch (error) {
       if (!(error instanceof AuthRequiredError) && token === state.loadingResourceToken) {
         elements["note-status"].textContent = "暂时无法读取回答。为保护已有笔记，请刷新重试后再编辑。";
@@ -1005,7 +1062,8 @@
       if (resourceId === state.selectedId) {
         state.noteBaseline = answer;
         elements["note-status"].textContent = noteIsDirty()
-          ? "刚才的版本已保存；新修改还没有保存。" : "已保存到你的私有 Hub。";
+          ? "刚才的版本已保存；新修改还没有保存。"
+          : window.HUB_REMOTE?.kind === "shared" ? "已保存到共享记录。" : "已保存到你的私有 Hub。";
       }
       notify("回答已保存");
       return !noteIsDirty();
@@ -1030,7 +1088,6 @@
       renderSessions();
     } catch (error) {
       if (error instanceof AuthRequiredError) throw error;
-      state.sessions = [];
       renderSessions("历史对话暂时无法读取。");
     }
   }
@@ -1158,13 +1215,10 @@
       await refreshSessions();
     } catch (error) {
       pending.remove();
-      if (
-        !(error instanceof AuthRequiredError) &&
-        requestToken === state.chatRequestToken &&
-        resourceId === state.selectedId
-      ) {
+      if (requestToken === state.chatRequestToken && resourceId === state.selectedId) {
         optimisticMessage.remove();
         elements["chat-input"].value = message;
+        if (error instanceof AuthRequiredError) return;
         const reason = error.message || "发送失败，请稍后重试。";
         appendMessage({
           role: "assistant",
@@ -1197,8 +1251,8 @@
         "p",
         "",
         selected
-          ? "选正文中的一个问题深入讨论，也可以直接说出你卡住的地方。"
-          : "选择一项资料，追问它的论证、边界或与你已有知识的联系。",
+          ? "哪一步还没想清楚？"
+          : "选择资料，开始讨论。",
       ));
       elements["chat-messages"].append(welcome);
       return;
@@ -1276,6 +1330,7 @@
       headers["Content-Type"] = "application/json";
       request.body = JSON.stringify(settings.body);
     }
+    if (settings.preserveVersion) request.preserveVersion = true;
 
     let response;
     try {
@@ -1286,8 +1341,9 @@
     }
 
     if (response.status === 401) {
-      if (!settings.allowUnauthenticated) showLogin(window.HUB_REMOTE
-        ? "GitHub 连接已过期，请重新连接。" : "会话已过期，请重新输入密码。");
+      if (!settings.allowUnauthenticated) showLogin(window.HUB_REMOTE?.kind === "shared"
+        ? "会话已过期，请重新输入口令。" : window.HUB_REMOTE
+          ? "GitHub 连接已过期，请重新连接。" : "会话已过期，请重新输入密码。");
       throw new AuthRequiredError("需要登录");
     }
 
