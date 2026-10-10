@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "kind": "PUBLIC_ALLOWLIST_ONLY",
+  "repository": "rujiewu/ReadingAgent",
+  "base": "/reading-workspace",
+  "modules": {
+    "reading": 10,
+    "learning": 63,
+    "trading": 19,
+    "investment": 1
+  },
+  "published_books": [
+    "abelson-sussman-sicp",
+    "adam-smith-wealth-of-nations",
+    "charles-darwin-origin-of-species",
+    "confucius-analects",
+    "euclid-elements",
+    "john-snow-mode-communication-cholera",
+    "plato-republic",
+    "rene-descartes-discourse-method"
+  ],
+  "private_records_exported": false,
+  "snapshot_exported": false,
+  "investment_personal_playbooks_exported": false
+}
