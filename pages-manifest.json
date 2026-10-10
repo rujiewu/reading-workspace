@@ -2,9 +2,10 @@
   "schema_version": "1.0.0",
   "kind": "PUBLIC_ALLOWLIST_ONLY",
   "repository": "rujiewu/ReadingAgent",
+  "source_commit": "b0fae85e6c9b2eae1412b4d02f3cf9a8d05cc464",
   "base": "/reading-workspace",
   "modules": {
-    "reading": 10,
+    "reading": 11,
     "learning": 63,
     "trading": 19,
     "investment": 1

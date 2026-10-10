@@ -227,5 +227,16 @@ if (window.HUB_GITHUB_CONFIG) {
     const input = document.getElementById('password');
     input.autocomplete = 'off'; input.placeholder = '仅授权此私有仓库的令牌';
     document.querySelector('.login-copy').textContent = '连接你的 GitHub 账号，读取并同步私有学习记录。令牌只保留在当前标签页。';
+    const help = document.createElement('p');
+    help.className = 'login-copy';
+    help.append('首次连接：创建限期令牌，只选择 ReadingAgent 仓库，授权 Contents 和 Actions 读写。');
+    const link = document.createElement('a');
+    const url = new URL('https://github.com/settings/personal-access-tokens/new');
+    url.search = new URLSearchParams({ name: 'Personal learning workspace', target_name: window.HUB_GITHUB_CONFIG.owner,
+      expires_in: '30', contents: 'write', actions: 'write' }).toString();
+    link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.textContent = '在 GitHub 设置连接';
+    help.append(' ', link);
+    document.querySelector('.login-copy').after(help);
   });
 }
