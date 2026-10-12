@@ -64,8 +64,8 @@
     setFocus(workspaceState.focus(), false);
     configureModule();
     bindEvents();
+    setDiscussion(false);
     setPane("read");
-    elements["public-read"].hidden = window.HUB_REMOTE?.kind !== "shared";
     if (window.HUB_REMOTE?.kind === "shared" && new URLSearchParams(location.search).get("read") === "public") {
       enterPublicReading();
     } else checkAuthentication();
@@ -85,7 +85,8 @@
       "practice-guide", "insert-worksheet", "discuss-note",
       "study-section", "study-practice",
       "focus-toggle", "resume-status",
-      "public-read", "record-status", "answer-tools",
+      "record-status", "answer-tools", "resource-content", "content-filter",
+      "discussion-toggle", "discussion-close",
     ].forEach((id) => {
       elements[id] = document.getElementById(id);
     });
@@ -97,6 +98,9 @@
     elements["library-title"].textContent = config.title;
     elements["module-description"].textContent = config.description;
     elements["group-label"].textContent = config.groupLabel;
+    const choices = window.HUB_STUDY.catalogChoices(state.module);
+    elements["resource-content"].replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
+    elements["content-filter"].hidden = choices.length < 2;
     document.title = `${config.title} · 知识工作台`;
 
     document.querySelectorAll("[data-module]").forEach((link) => {
@@ -141,14 +145,22 @@
 
   function bindEvents() {
     elements["login-form"].addEventListener("submit", login);
-    elements["public-read"].addEventListener("click", enterPublicReading);
     elements.logout.addEventListener("click", () => state.readOnly ? showLogin() : logout());
     elements["theme-toggle"].addEventListener("click", toggleTheme);
+    elements["discussion-toggle"].addEventListener("click", () => {
+      setDiscussion(document.documentElement.dataset.discussion !== "true");
+    });
+    elements["discussion-close"].addEventListener("click", () => {
+      setDiscussion(false);
+      if (window.matchMedia("(min-width: 1181px)").matches) elements["discussion-toggle"].focus();
+      else document.querySelector('button[data-pane="read"]').focus();
+    });
     elements["focus-toggle"].addEventListener("click", () => {
       setFocus(document.documentElement.dataset.focus !== "true");
     });
     elements["resource-search"].addEventListener("input", renderResourceList);
     elements["resource-group"].addEventListener("change", renderResourceList);
+    elements["resource-content"].addEventListener("change", renderResourceList);
     elements["study-section"].addEventListener("change", () => {
       if (elements["study-section"].value === "extensions") {
         jumpTo("links-title");
@@ -253,7 +265,7 @@
     } catch (error) {
       if (token !== state.authRequestToken || state.readOnly) return;
       if (window.HUB_REMOTE?.kind === "shared") {
-        showLogin(error.message || "记录暂时无法连接，可以先阅读。");
+        showLogin(error.message || "暂时无法连接，请稍后重试。");
         return;
       }
       showApp();
@@ -293,7 +305,7 @@
     } catch (error) {
       if (token !== state.authRequestToken) return;
       elements["login-error"].textContent = error instanceof AuthRequiredError
-        ? "密码不正确，请再试一次。"
+        ? "访问名称不正确，请再试一次。"
         : error.message || "暂时无法登录，请稍后重试。";
       elements["login-error"].hidden = false;
       elements.password.select();
@@ -354,6 +366,8 @@
     elements["history-drawer"].hidden = enabled;
     document.querySelector(".chat-panel").hidden = enabled;
     document.querySelector('button[data-pane="chat"]').hidden = enabled;
+    elements["discussion-toggle"].hidden = enabled;
+    if (enabled) setDiscussion(false);
     elements["model-meta"].hidden = enabled;
     if (window.HUB_REMOTE?.kind === "shared") {
       document.querySelector(".private-badge").textContent = enabled ? "记录未连接" : "共享保存";
@@ -497,9 +511,11 @@
 
       const requestedId = options.selection || new URLSearchParams(window.location.search).get("resource");
       const ids = state.items.map(item => item.id);
+      const firstStudy = outlineOrder(state.items).find(item => window.HUB_STUDY.catalogMatches(item, state.module, "study"));
+      const preferred = MODULES[state.module].initialResource || firstStudy?.id;
       const initialId = mode ? ids.includes(requestedId) ? requestedId
-        : ids.includes(MODULES[state.module].initialResource) ? MODULES[state.module].initialResource : ids[0]
-        : workspaceState.initial(state.module, ids, requestedId, MODULES[state.module].initialResource);
+        : ids.includes(preferred) ? preferred : ids[0]
+        : workspaceState.initial(state.module, ids, requestedId, preferred);
       await selectResource(initialId, { updateUrl: false, resumeSection: !window.location.hash,
         forceReload: options.reconnect, draft: options.draft, position: options.position });
       if (token !== state.workspaceLoadToken || mode !== state.readOnly) return;
@@ -586,11 +602,18 @@
       const placement = item.placement || {};
       return normalize(`${item.title || ""} ${item.subtitle || ""} ${item.body || ""} `
         + `${placement.spine_title || ""} ${placement.stage_title || ""}`).includes(query);
-    }) : candidates;
+    }) : candidates.filter(item => window.HUB_STUDY.catalogMatches(item, state.module, elements["resource-content"].value));
     const visible = outlineOrder(matches);
+    const stageCounts = new Map();
+    visible.forEach(item => {
+      const outline = catalogOutline(item);
+      const key = JSON.stringify([outline.groupKey, outline.stageKey]);
+      stageCounts.set(key, (stageCounts.get(key) || 0) + 1);
+    });
 
     elements["resource-list"].replaceChildren();
-    elements["resource-count"].textContent = `${visible.length} / ${state.items.length} 项资料`;
+    elements["resource-list"].dataset.content = query ? "all" : elements["resource-content"].value;
+    elements["resource-count"].textContent = `${visible.length} 项${query ? "匹配" : "材料"}`;
 
     if (!visible.length) {
       const empty = make("p", "empty-list", query ? "没有匹配的资料。" : "这个模块还没有资料。");
@@ -623,7 +646,7 @@
         stageNode.setAttribute("aria-label", outline.stageTitle);
         const heading = make("div", "resource-stage-title", outline.stageTitle);
         heading.setAttribute("aria-hidden", "true");
-        stageNode.append(heading);
+        if (stageCounts.get(JSON.stringify([outline.groupKey, outline.stageKey])) > 1) stageNode.append(heading);
         groupNode.append(stageNode);
       } else if (!outline.stageKey) {
         stageNode = groupNode;
@@ -646,19 +669,22 @@
       }
       button.append(title);
       const rawSubtitle = item.subtitle || preview(item.body) || "打开查看详情";
-      const subtitle = state.module === "learning"
-        ? rawSubtitle
-        : rawSubtitle.replace(`${item.group} · `, "");
+      const subtitle = rawSubtitle.replace(`${item.group} · `, "");
       button.append(make("span", "resource-subtitle", subtitle));
       if (item.placement) {
-        const placement = state.module === "reading"
-          ? `${item.placement.stage_title} · ${item.placement.depth_label}`
-          : item.placement.depth_label;
+        const placement = state.module === "learning"
+          ? item.evidence?.lesson ? "教学课" : "资源路线"
+          : state.module === "reading" && item.kind === "book" ? "书籍研究" : item.placement.depth_label;
         button.append(make("span", "resource-placement", placement));
       }
       stageNode.append(button);
     });
     elements["resource-list"].append(fragment);
+    if (!query) {
+      const active = elements["resource-list"].querySelector('[aria-selected="true"]');
+      if (active) elements["resource-list"].scrollTop = Math.max(0,
+        active.offsetTop - elements["resource-list"].offsetTop - 36);
+    }
   }
 
   function catalogOutline(item) {
@@ -735,8 +761,13 @@
     else if (event.key === "End") nextIndex = options.length - 1;
     else if (event.key === "ArrowDown") nextIndex = Math.min(options.length - 1, currentIndex + 1);
     else nextIndex = Math.max(0, currentIndex < 0 ? 0 : currentIndex - 1);
+    const id = options[nextIndex].dataset.resourceId;
     options[nextIndex].focus();
-    selectResource(options[nextIndex].dataset.resourceId, { updateUrl: true });
+    selectResource(id, { updateUrl: true }).then(accepted => {
+      if (accepted && state.selectedId === id) {
+        elements["resource-list"].querySelector('[aria-selected="true"]')?.focus();
+      }
+    });
   }
 
   async function selectResource(resourceId, options) {
@@ -753,6 +784,9 @@
     elements["resume-status"].hidden = true;
     if (!(options && options.fromSession)) state.sessionLoadToken += 1;
     state.selectedId = item.id;
+    if (!window.HUB_STUDY.catalogMatches(item, state.module, elements["resource-content"].value)) {
+      elements["resource-content"].value = "all";
+    }
     renderResourceList();
     const active = elements["resource-list"].querySelector('[aria-selected="true"]');
     if (active) elements["resource-list"].scrollTop = Math.max(0,
@@ -851,7 +885,10 @@
     elements["detail-title"].textContent = item.title || "未命名资料";
     renderPlacement(item);
     const order = item.sequence ? ` · ${state.module === "learning" ? "单元" : "研究顺序"} ${item.sequence.position} / ${item.sequence.total}` : "";
-    elements["detail-subtitle"].textContent = (item.subtitle || "") + order;
+    const subtitle = state.module === "learning"
+      ? (item.subtitle || "").replace(`${item.group} · `, "").replace(/ · (含入门试讲|资源路线)$/, "")
+      : item.subtitle || "";
+    elements["detail-subtitle"].textContent = subtitle + order;
     elements["detail-subtitle"].hidden = !item.subtitle;
 
     const inlineBook = state.module === "reading" && item.kind === "book";
@@ -915,11 +952,9 @@
       return;
     }
     host.hidden = false;
-    host.append(
-      make("span", "placement-spine", placement.spine_title),
-      make("span", "placement-stage", placement.stage_title),
-      make("span", "placement-depth", `${placement.depth_label} · ${placement.scope_label}`),
-    );
+    host.append(make("span", "placement-spine", placement.spine_title));
+    if (placement.stage_title !== item.title) host.append(make("span", "placement-stage", placement.stage_title));
+    host.append(make("span", "placement-depth", placement.depth_label));
     const prerequisites = (placement.prerequisite_ids || []).map(findItem).filter(Boolean);
     if (prerequisites.length) {
       const prerequisiteList = make("span", "placement-prerequisites", "先修：");
@@ -1010,6 +1045,7 @@
   }
 
   function setFocus(enabled, persist = true) {
+    if (enabled) setDiscussion(false);
     const target = state.detailView === "text" ? readingTarget(elements["study-section"].value) : null;
     const before = target?.getBoundingClientRect().top;
     document.documentElement.dataset.focus = String(Boolean(enabled));
@@ -1083,7 +1119,7 @@
       }
       const discussion = make("div", "section-discussion");
       discussion.setAttribute("aria-label", `讨论：${section.title}`);
-      const button = make("button", "", "讨论这一段 ↗");
+      const button = make("button", "", "讨论本节");
       button.type = "button";
       button.disabled = state.readOnly;
       button.setAttribute("aria-label", `讨论：${section.title}`);
@@ -1245,8 +1281,23 @@
     notify("回答已保存，问题已准备好；确认后再发送。");
   }
 
+  function setDiscussion(enabled) {
+    enabled = Boolean(enabled) && !state.readOnly;
+    const target = state.detailView === "text" ? readingTarget(elements["study-section"].value) : null;
+    const before = target?.getBoundingClientRect().top;
+    if (enabled && document.documentElement.dataset.focus === "true") setFocus(false);
+    document.documentElement.dataset.discussion = String(enabled);
+    elements["discussion-toggle"].setAttribute("aria-expanded", String(enabled));
+    if (!enabled && document.documentElement.dataset.pane === "chat") setPane("read");
+    if (target && Number.isFinite(before)) {
+      document.getElementById("resource-detail").scrollTop += target.getBoundingClientRect().top - before;
+    }
+    studyNavigation?.refresh();
+  }
+
   function setPane(pane) {
     if (state.readOnly && pane === "chat") return;
+    if (pane === "chat") setDiscussion(true);
     if (pane !== "read" && window.matchMedia("(min-width: 1181px)").matches
         && document.documentElement.dataset.focus === "true") setFocus(false);
     document.documentElement.dataset.pane = pane;
@@ -1558,6 +1609,25 @@
           ? "哪一步还没想清楚？"
           : "选择资料，开始讨论。",
       ));
+      if (selected) {
+        const prompts = make("div", "discussion-prompts");
+        for (const [action, label] of [["explain", "讲清推理"], ["evidence", "追问依据"], ["transfer", "换个情境"]]) {
+          const button = make("button", "", label);
+          button.type = "button";
+          button.addEventListener("click", () => {
+            if (state.readOnly || state.sending) return;
+            if (elements["chat-input"].value.trim() && !window.confirm("替换输入框里尚未发送的问题吗？")) return;
+            const index = Number(elements["study-section"].value);
+            const section = state.bookStudy?.sections[index] || state.studySections[index];
+            if (!section) { notify("请先选择要讨论的正文章节。"); return; }
+            elements["chat-input"].value = window.HUB_STUDY.question(selected,
+              { ...section, position: index + 1 }, action);
+            elements["chat-input"].focus();
+          });
+          prompts.append(button);
+        }
+        welcome.append(prompts);
+      }
       elements["chat-messages"].append(welcome);
       return;
     }
@@ -1570,7 +1640,8 @@
     const wrapper = make("div", `message ${role}${isError ? " error" : ""}`);
     wrapper.append(make("span", "message-label", role === "user" ? "你" : "知识助手"));
     const bubble = make("div", "message-bubble");
-    bubble.textContent = String(message.content || "");
+    if (role === "assistant") renderStructuredText(bubble, String(message.content || ""));
+    else bubble.textContent = String(message.content || "");
     wrapper.append(bubble);
     elements["chat-messages"].append(wrapper);
     scrollChat();

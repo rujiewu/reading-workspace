@@ -33,16 +33,16 @@
       <section class="login-card" aria-labelledby="login-title">
         <div class="brand-mark" aria-hidden="true">知</div>
         <h1 id="login-title">知识工作台</h1>
-        <p class="login-copy">阅读、练习与对话，接着上次继续。</p>
+        <p class="login-copy">读懂一个问题，连起更多知识。</p>
         <form id="login-form" class="login-form">
-          <label for="password">访问口令</label>
+          <label for="password">访问用户</label>
           <div class="password-row">
-            <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+            <input id="password" name="password" type="password" autocomplete="current-password" placeholder="输入访问名称" aria-describedby="access-note" required autofocus>
             <button id="login-submit" class="primary-button" type="submit">进入</button>
           </div>
           <p id="login-error" class="form-error" role="alert" hidden></p>
         </form>
-        <button id="public-read" class="practice-start" type="button" hidden>先阅读</button>
+        <p id="access-note" class="access-note">此入口共用学习记录与对话。</p>
       </section>
     </main>
 
@@ -54,12 +54,13 @@
         </a>
         <nav class="module-nav" aria-label="工作台模块">
           <a href="/reading-workspace/reading/" data-module="reading">阅读</a>
-          <a href="/reading-workspace/trading/" data-module="trading">交易</a>
           <a href="/reading-workspace/learning/" data-module="learning">学习</a>
+          <a href="/reading-workspace/trading/" data-module="trading">交易</a>
           <a href="/reading-workspace/investment/" data-module="investment">投资</a>
         </nav>
         <div class="header-actions">
           <span id="record-status">学习空间</span>
+          <button id="discussion-toggle" type="button" aria-controls="discussion-panel" aria-expanded="false">讨论</button>
           <button id="focus-toggle" type="button" aria-label="进入专注阅读，收起目录和讨论" aria-pressed="false">专注阅读</button>
           <button id="theme-toggle" type="button" aria-label="切换到深色模式" aria-pressed="false">深色</button>
           <button id="logout" type="button" hidden>退出</button>
@@ -86,9 +87,15 @@
             <input id="resource-search" type="search" placeholder="搜索资料" autocomplete="off">
             <kbd aria-hidden="true">⌘K</kbd>
           </label>
+          <div class="catalog-filters">
+          <div id="content-filter" class="content-filter" hidden>
+            <label for="resource-content">内容</label>
+            <select id="resource-content"></select>
+          </div>
           <div class="group-filter">
             <label for="resource-group" id="group-label">分类</label>
             <select id="resource-group"><option value="">全部分类</option></select>
+          </div>
           </div>
           <div class="list-meta">
             <span id="resource-count">0 项资料</span>
@@ -157,14 +164,15 @@
           </div>
         </article>
 
-        <aside class="chat-panel" aria-labelledby="chat-title">
+        <aside id="discussion-panel" class="chat-panel" aria-labelledby="chat-title">
           <header class="chat-header">
             <div>
               <h2 id="chat-title">讨论</h2>
             </div>
-            <button id="new-session" class="icon-text-button" type="button" title="新建对话">
+            <div class="chat-actions"><button id="new-session" class="icon-text-button" type="button" title="新建对话">
               <span aria-hidden="true">＋</span><span>新对话</span>
             </button>
+            <button id="discussion-close" class="icon-text-button" type="button" aria-label="收起讨论，返回正文">×</button></div>
           </header>
 
           <div class="context-strip">

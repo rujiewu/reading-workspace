@@ -21,6 +21,7 @@
 .takeaway-band { padding: 20px 22px; color: var(--ink); border-radius: 10px; }
 .takeaway-band blockquote { font-size: 20px; line-height: 1.7; font-family: inherit; }
 .takeaway-band .citation-ref { color: var(--accent-ink); }
+.takeaway-band .claim-meta { margin-top: 14px; }
 .claim { padding: 14px 0; border: 0; }
 /* The export's dash requires a left gutter. Neither belongs in flowing prose. */
 .claim::before { content: none; display: none; }

@@ -70,7 +70,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     if (!unauthenticated && readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
     if (!unauthenticated && !validSession(session)) {
       forgetSession();
-      return json({ detail: '请重新输入访问口令。' }, 401);
+      return json({ detail: '请重新输入访问名称。' }, 401);
     }
     const revision = sessionRevision;
     const timeoutMs = path === '/api/login' ? 12000 : path.startsWith('/api/chat') ? 240000 : 60000;
@@ -310,7 +310,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       return response;
     }
     if (readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
-    if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问口令。' }, 401); }
+    if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问名称。' }, 401); }
     if (url.pathname === '/api/notes') {
       const resource = url.searchParams.get('resource_id') || body?.resource_id;
       if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
@@ -395,11 +395,9 @@ if (sharedHubConfig) {
   window.HUB_REMOTE = window.HUB_SHARED_TRANSPORT(sharedHubConfig);
   document.addEventListener('DOMContentLoaded', () => {
     const label = document.querySelector('label[for=password]');
-    if (label) label.textContent = '访问口令';
+    if (label) label.textContent = '访问用户';
     const input = document.getElementById('password');
-    if (input) { input.autocomplete = 'off'; input.placeholder = '输入访问口令'; }
-    const copy = document.querySelector('.login-copy');
-    if (copy) copy.textContent = '共用学习记录与对话。';
+    if (input) { input.autocomplete = 'off'; input.placeholder = '输入访问名称'; }
     const badge = document.querySelector('.private-badge');
     if (badge) badge.textContent = '共享保存';
   });

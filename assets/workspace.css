@@ -1,7 +1,7 @@
 /* Workspace composition. Component appearance lives in app.css. */
 .workspace {
-  max-width: 1920px;
-  grid-template-columns: minmax(220px, 260px) minmax(360px, 1fr) minmax(300px, 360px);
+  max-width: 1540px;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
   padding: 18px 24px;
   gap: 16px;
   min-height: 0;
@@ -9,7 +9,14 @@
 :root[data-read-only="true"] .workspace {
   grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
 }
-#public-read { margin-top: 18px; }
+.access-note { margin: 18px 0 0; color: var(--muted); font-size: 12px; }
+.login-card { background: var(--surface); box-shadow: 0 12px 50px rgba(39, 48, 42, 0.05); }
+.login-copy { font-size: 14px; }
+@media (min-width: 1181px) {
+  .chat-panel { display: none; }
+  :root[data-discussion="true"] .workspace { max-width: 1920px; grid-template-columns: 230px minmax(0, 1fr) minmax(300px, 360px); }
+  :root[data-discussion="true"] .chat-panel { display: flex; }
+}
 .library-panel, .detail-panel, .chat-panel {
   height: calc(100dvh - var(--header-height) - 36px);
   min-height: 0;
@@ -20,10 +27,13 @@
 .module-heading h1 { font-size: 23px; }
 .module-description { font-size: 12px; }
 .resource-item { padding: 10px 11px; margin: 1px 0; border-radius: 9px; }
-.resource-item .resource-subtitle { -webkit-line-clamp: 1; }
+.resource-item .resource-subtitle { display: none; }
+.resource-item.active .resource-subtitle { display: -webkit-box; }
 .resource-item.active .resource-subtitle { -webkit-line-clamp: 2; }
-.resource-item .resource-placement { font-size: 10px; }
+.resource-item .resource-placement { font-size: 11px; color: var(--muted); }
+.resource-list[data-content="study"] .resource-placement { display: none; }
 .detail-panel { position: relative; padding: 28px clamp(22px, 2.6vw, 44px); }
+#detail-content { max-width: 780px; margin-inline: auto; }
 .detail-header { padding-bottom: 6px; border-bottom: 0; }
 .detail-header h2 { font-size: clamp(23px, 2vw, 29px); }
 .detail-subtitle { font-size: 13px; }
@@ -33,22 +43,22 @@
   :root[data-focus="true"] .library-panel, :root[data-focus="true"] .chat-panel { display: none; }
   :root[data-focus="true"] .detail-body { margin-inline: auto; }
 }
-.detail-placement { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 7px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.detail-placement { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 7px; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .detail-placement span + span { padding-left: 12px; border-left: 1px solid var(--line); }
 .placement-spine { color: var(--accent-ink); font-weight: 650; }
 .placement-stage { color: var(--ink); }
 .placement-depth { color: var(--muted); }
 .placement-prerequisites a { color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; }
-.detail-body { max-width: 72ch; padding-top: 12px; font-size: 16px; line-height: 1.95; overflow-wrap: anywhere; container-type: inline-size; }
+.detail-body { padding-top: 8px; font-size: 16px; line-height: 1.95; overflow-wrap: anywhere; container-type: inline-size; }
 .detail-body > h3:first-child { margin-top: 12px; }
-.group-filter { padding: 12px 8px 0; }
-.group-filter label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-.group-filter select { width: 100%; padding: 8px; font: inherit; font-size: 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+.catalog-filters { display: grid; gap: 8px; padding: 12px 8px 0; }
+.catalog-filters label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.catalog-filters select { width: 100%; padding: 8px; font: inherit; font-size: 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
 .resource-group-title { padding: 14px 10px 5px; font-size: 11px; font-weight: 700; color: var(--accent-ink); }
 .resource-stage-title { padding: 8px 10px 3px; font-size: 10px; font-weight: 650; color: var(--muted); }
 .resource-stage + .resource-stage { margin-top: 6px; }
 .resource-item strong { white-space: normal; }
-.detail-navigation { position: sticky; top: -28px; background: var(--surface); z-index: 2; padding-top: 6px; margin-bottom: 12px; }
+.detail-navigation { position: sticky; top: -28px; background: var(--surface); z-index: 2; padding-top: 6px; margin-bottom: 8px; }
 .detail-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--line); }
 .detail-tabs button { padding: 10px 0; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; font-size: 13px; white-space: nowrap; }
 .detail-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
@@ -67,6 +77,20 @@
 #note-status { color: var(--muted); font-size: 12px; line-height: 1.7; }
 .practice-guide > h4 { font-size: 15px; font-weight: 600; margin: 16px 0; }
 .chat-header h2 { font-size: 19px; }
+.chat-actions { display: flex; align-items: center; gap: 2px; }
+#discussion-close { font-size: 22px; font-weight: 400; min-width: 36px; min-height: 36px; }
+.discussion-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.discussion-prompts button { padding: 7px 10px; font-size: 12px; color: var(--accent-ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.discussion-prompts button:hover { background: var(--accent-soft); }
+.message.assistant .message-bubble { width: 100%; max-width: 100%; background: transparent; padding: 6px 2px; white-space: normal; container-type: inline-size; }
+.message-bubble p { margin-bottom: 0.9em; }
+.message-bubble > :last-child { margin-bottom: 0; }
+.message-bubble h3, .message-bubble h4 { margin: 18px 0 8px; font-size: 15px; line-height: 1.6; }
+.message-bubble ul, .message-bubble ol { padding-left: 22px; margin: 12px 0; }
+.message-bubble li { margin: 6px 0; }
+.message-bubble pre { white-space: pre-wrap; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.message-bubble blockquote { margin: 14px 0; padding-left: 12px; border-left: 2px solid var(--line-strong); color: var(--muted); }
+.message-bubble .study-table { margin: 14px 0; font-size: 12px; }
 .chat-panel { padding: 22px 18px 12px; }
 .chat-messages { min-height: 80px; }
 .pane-switcher { display: none; }
@@ -99,6 +123,7 @@
 .section-discussion button { padding: 4px 0; border: 0; background: transparent; color: var(--accent-ink); font-size: 12px; }
 .study-part { padding-bottom: 4px; }
 .study-part + .study-part { padding-top: 12px; }
+.study-part:first-child > p:first-of-type { font-size: 17px; line-height: 1.95; color: var(--ink); }
 .study-part > .study-heading { margin: 18px 0 12px; font-size: 21px; line-height: 1.5; font-weight: 600; }
 .study-part > .knowledge-kind { margin: 24px 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; }
 .programme-path { margin: 20px 0 26px; }
@@ -157,7 +182,7 @@
 }
 
 @media (max-width: 1180px) {
-  #focus-toggle { display: none; }
+  #focus-toggle, #discussion-toggle { display: none; }
   .pane-switcher { display: flex; justify-content: center; gap: 6px; padding: 8px 12px; }
   .pane-switcher button { padding: 8px 20px; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
   .pane-switcher button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent-soft); }
@@ -184,6 +209,7 @@
   .detail-tabs { gap: 16px; }
   .detail-header h2 { font-size: 24px; }
   .detail-body { font-size: 15px; }
+  .study-part:first-child > p:first-of-type { font-size: 16px; }
   .chat-panel { padding: 18px 14px 12px; }
   .study-controls { gap: 8px; }
   .brand > span:last-child { font-size: 14px; }
