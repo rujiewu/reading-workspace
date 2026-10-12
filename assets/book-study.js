@@ -34,7 +34,8 @@ window.HUB_BOOK_STUDY = (() => {
     for (const href of ["/book-assets/styles.css", "/assets/book-study.css"]) {
       const css = document.createElement("link");
       css.rel = "stylesheet";
-      css.href = (window.HUB_SITE_BASE || "") + href;
+      const revision = window.HUB_ASSET_VERSIONS?.[href];
+      css.href = (window.HUB_SITE_BASE || "") + href + (revision ? '?v=' + revision : '');
       stylesReady.push(new Promise(resolve => {
         css.addEventListener("load", resolve, { once: true });
         css.addEventListener("error", resolve, { once: true });
