@@ -1836,7 +1836,9 @@
             const td = make("td");
             const label = make("span", "cell-label", cleanInline(table.header[index]));
             label.setAttribute("aria-hidden", "true");
-            td.append(label, make("span", "cell-value", cleanInline(value)));
+            const content = make("span", "cell-value");
+            renderTableValue(content, value);
+            td.append(label, content);
             tr.append(td);
           });
           body.append(tr);
@@ -1847,6 +1849,35 @@
         container.append(make("p", isClaim ? "claim-block" : "", cleanInline(paragraph.join(isClaim ? "\n" : " "))));
       }
     }
+  }
+
+  function renderTableValue(container, value) {
+    // Recognize the existing Markdown-link subset without interpreting HTML or
+    // links inside code/image tokens. Everything else keeps its plain-text form.
+    const text = String(value);
+    const tokens = /`[^`]+`|!\[[^\]]*\]\([^)]*\)|\[([^\]]+)\]\(([^)\s]+)\)/g;
+    let position = 0;
+    for (const token of text.matchAll(tokens)) {
+      container.append(document.createTextNode(cleanInline(text.slice(position, token.index))));
+      let href = null;
+      if (token[1]) {
+        try {
+          const target = new URL(token[2], window.location.origin);
+          if (!target.username && !target.password) href = safeHref(token[2]);
+        } catch { /* Invalid links retain their inert text. */ }
+      }
+      if (href) {
+        const label = cleanInline(token[1]);
+        const link = make("a", "", label);
+        link.href = moduleHref(href);
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.setAttribute("aria-label", `${label}（新标签页）`);
+        container.append(link);
+      } else container.append(document.createTextNode(cleanInline(token[0])));
+      position = token.index + token[0].length;
+    }
+    container.append(document.createTextNode(cleanInline(text.slice(position))));
   }
 
   function cleanInline(value) {
