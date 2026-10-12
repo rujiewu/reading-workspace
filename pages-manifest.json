@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "kind": "PUBLIC_ALLOWLIST_ONLY",
   "repository": "rujiewu/ReadingAgent",
-  "source_commit": "c8e41a8c5862f0bbf685fff803251abe990a7afc",
+  "source_commit": "9fe16775373763a97d7c06053efd29e33b601d66",
   "base": "/reading-workspace",
   "modules": {
     "reading": 11,
