@@ -31,6 +31,10 @@
     selectionRequestToken: 0,
     noteSHA: undefined,
     preservedNoteDraft: false,
+    noteEditRevision: 0,
+    noteSaveToken: 0,
+    noteSyncFailed: false,
+    noteComposing: false,
     publicChatDraft: null,
   };
 
@@ -38,6 +42,8 @@
   let toastTimer;
   let studyNavigation;
   let workspaceState;
+  let noteSaveTimer;
+  const NOTE_SAVE_DELAY = 2500;
 
   class AuthRequiredError extends Error {}
 
@@ -183,11 +189,17 @@
       }
     });
     elements["resource-list"].addEventListener("keydown", navigateResourceList);
-    elements["save-note"].addEventListener("click", saveNote);
+    elements["save-note"].addEventListener("click", () => saveNote());
     elements["insert-worksheet"].addEventListener("click", insertWorksheet);
     elements["discuss-note"].addEventListener("click", prepareNoteDiscussion);
-    elements["note-answer"].addEventListener("input", () => {
-      elements["note-status"].textContent = noteIsDirty() ? "有尚未保存的修改。" : "回答与已保存版本一致。";
+    elements["note-answer"].addEventListener("input", noteChanged);
+    elements["note-answer"].addEventListener("compositionstart", () => {
+      state.noteComposing = true;
+      clearNoteSaveTimer();
+    });
+    elements["note-answer"].addEventListener("compositionend", () => {
+      state.noteComposing = false;
+      noteChanged();
     });
     window.addEventListener("beforeunload", event => {
       if (!noteIsDirty() && !state.savingNote) return;
@@ -217,6 +229,7 @@
       window.addEventListener("focus", refreshSharedState);
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") refreshSharedState();
+        else if (canAutoSaveNote()) saveNote({ automatic: true });
       });
       window.setInterval(() => {
         if (document.visibilityState === "visible") refreshSharedState();
@@ -252,12 +265,14 @@
     event.preventDefault();
     const password = elements.password.value;
     if (!password || elements["login-submit"].disabled) return;
+    pauseNoteSaving();
     const token = ++state.authRequestToken;
     const selection = state.selectedId;
     const position = selection ? captureReadingPosition() : null;
     const draft = noteIsDirty() ? {
       resourceId: selection, answer: elements["note-answer"].value,
       baseline: state.noteBaseline, sha: state.noteSHA,
+      syncFailed: state.noteSyncFailed,
     } : null;
 
     setLoginPending(true);
@@ -327,6 +342,7 @@
   }
 
   function setReadOnly(enabled) {
+    pauseNoteSaving();
     state.readOnly = enabled;
     state.modeRevision += 1;
     window.HUB_REMOTE?.setReadOnly?.(enabled);
@@ -403,12 +419,14 @@
 
   async function logout() {
     if (!mayLeaveNote()) return;
+    pauseNoteSaving();
     elements.logout.disabled = true;
     try {
       await api("/api/logout", { method: "POST" });
     } catch (error) {
       if (!(error instanceof AuthRequiredError)) {
         notify(error.message || "暂时无法退出，请稍后重试。");
+        scheduleNoteSave();
         return;
       }
     } finally {
@@ -430,6 +448,8 @@
   }
 
   function showLogin(message) {
+    pauseNoteSaving();
+    setNoteControls();
     elements["boot-view"].hidden = true;
     elements["app-shell"].hidden = true;
     elements["login-view"].hidden = false;
@@ -513,16 +533,23 @@
     const resourceToken = state.loadingResourceToken;
     const sessionToken = state.sessionLoadToken;
     const requestToken = state.chatRequestToken;
-    const canRefreshNote = state.noteReady && !noteIsDirty();
+    const noteRevision = state.noteEditRevision;
+    const modeRevision = state.modeRevision;
+    const authToken = state.authRequestToken;
+    const current = () => !state.readOnly && !elements["app-shell"].hidden
+      && modeRevision === state.modeRevision && authToken === state.authRequestToken;
+    const canRefreshNote = state.noteReady && !state.noteComposing && !noteIsDirty();
     try {
       await refreshSessions();
-      if (canRefreshNote && resourceId) {
+      if (!current()) return;
+      if (canRefreshNote && resourceId && noteRevision === state.noteEditRevision && !noteIsDirty()) {
         const record = await api(`/api/notes?module=${encodeURIComponent(state.module)}&resource_id=${encodeURIComponent(resourceId)}`,
           { preserveVersion: true });
         // Editing or navigating while the network request runs preserves both
         // the draft and its original SHA, so an unseen update cannot be erased.
-        if (resourceToken === state.loadingResourceToken && resourceId === state.selectedId
-            && state.noteReady && !noteIsDirty() && !state.savingNote) {
+        if (current() && noteRevision === state.noteEditRevision
+            && resourceToken === state.loadingResourceToken && resourceId === state.selectedId
+            && state.noteReady && !state.noteComposing && !noteIsDirty() && !state.savingNote) {
           const answer = typeof record?.answer === "string" ? record.answer : "";
           window.HUB_REMOTE.acceptNoteSnapshot(state.module, resourceId, record);
           if (answer !== state.noteBaseline) elements["note-status"].textContent = "已同步最新回答。";
@@ -531,18 +558,21 @@
           state.noteSHA = record.sha;
         }
       }
+      if (!current()) return;
       if (sessionId && sessionId === state.sessionId && !state.sending) {
         const record = await api(`/api/sessions/${encodeURIComponent(sessionId)}?module=${encodeURIComponent(state.module)}`);
-        if (sessionToken === state.sessionLoadToken && requestToken === state.chatRequestToken
+        if (current() && sessionToken === state.sessionLoadToken && requestToken === state.chatRequestToken
             && sessionId === state.sessionId && resourceId === state.selectedId && !state.sending
             && record.resource_id === state.sessionResourceId) {
           renderMessages(Array.isArray(record.messages) ? record.messages : []);
         }
       }
+      if (!current()) return;
       await window.HUB_REMOTE.flushNavigation().catch(() => {});
+      if (!current()) return;
       await window.HUB_REMOTE.restoreNavigation().catch(() => {});
     } catch (error) {
-      if (!(error instanceof AuthRequiredError)) setCatalogStatus("同步暂未完成");
+      if (current() && !(error instanceof AuthRequiredError)) setCatalogStatus("同步暂未完成");
     } finally {
       state.refreshingShared = false;
     }
@@ -1113,7 +1143,63 @@
   }
 
   function noteIsDirty() {
-    return state.preservedNoteDraft || state.noteReady && elements["note-answer"].value !== state.noteBaseline;
+    return state.preservedNoteDraft || state.noteReady
+      && (state.noteSyncFailed || elements["note-answer"].value !== state.noteBaseline);
+  }
+
+  function clearNoteSaveTimer() {
+    window.clearTimeout(noteSaveTimer);
+    noteSaveTimer = undefined;
+  }
+
+  function pauseNoteSaving() {
+    clearNoteSaveTimer();
+    // A timed-out or superseded write may have reached the server. Keep the
+    // draft guarded until a version-checked retry or a deliberate discard.
+    if (state.savingNote) state.noteSyncFailed = true;
+    state.noteSaveToken += 1;
+    state.savingNote = false;
+    state.noteComposing = false;
+  }
+
+  function noteScope() {
+    return { module: state.module, resourceId: state.selectedId,
+      resourceToken: state.loadingResourceToken, modeRevision: state.modeRevision,
+      authToken: state.authRequestToken, saveToken: state.noteSaveToken };
+  }
+
+  function currentNoteScope(scope) {
+    return !state.readOnly && !elements["app-shell"].hidden
+      && scope.module === state.module && scope.resourceId === state.selectedId
+      && scope.resourceToken === state.loadingResourceToken && scope.modeRevision === state.modeRevision
+      && scope.authToken === state.authRequestToken && scope.saveToken === state.noteSaveToken;
+  }
+
+  function canAutoSaveNote() {
+    return window.HUB_REMOTE?.kind === "shared" && !state.readOnly && !elements["app-shell"].hidden
+      && state.noteReady && !state.savingNote && !state.noteSyncFailed && !state.noteComposing
+      && Boolean(state.selectedId) && noteIsDirty();
+  }
+
+  function scheduleNoteSave() {
+    clearNoteSaveTimer();
+    if (!canAutoSaveNote()) return;
+    const scope = noteScope();
+    noteSaveTimer = window.setTimeout(() => {
+      noteSaveTimer = undefined;
+      if (currentNoteScope(scope) && canAutoSaveNote()) saveNote({ automatic: true });
+    }, NOTE_SAVE_DELAY);
+  }
+
+  function noteChanged() {
+    state.noteEditRevision += 1;
+    if (state.readOnly || !state.noteReady) return;
+    elements["note-status"].textContent = state.noteSyncFailed
+      ? "草稿已保留，请重试保存。"
+      : state.savingNote ? "正在保存；新修改会接着保存。"
+      : noteIsDirty() ? window.HUB_REMOTE?.kind === "shared" ? "修改待同步…" : "有尚未保存的修改。"
+      : "回答与已保存版本一致。";
+    scheduleNoteSave();
   }
 
   function mayLeaveNote() {
@@ -1129,6 +1215,8 @@
     ["save-note", "insert-worksheet", "discuss-note"].forEach(id => {
       elements[id].disabled = state.readOnly || !state.noteReady || state.savingNote;
     });
+    elements["save-note"].textContent = state.savingNote ? "保存中…"
+      : state.noteSyncFailed ? "重试保存" : window.HUB_REMOTE?.kind === "shared" ? "立即保存" : "保存回答";
   }
 
   function insertWorksheet() {
@@ -1187,13 +1275,17 @@
 
   async function loadNote(resourceId, options = {}) {
     const item = findItem(resourceId);
-    const token = ++state.loadingResourceToken;
+    pauseNoteSaving();
+    state.loadingResourceToken += 1;
     const draft = options.draft;
+    state.noteEditRevision += 1;
+    state.noteSyncFailed = Boolean(draft?.syncFailed);
     elements["note-answer"].value = draft ? draft.answer : "";
     state.noteBaseline = draft ? draft.baseline : "";
     state.noteSHA = draft?.sha;
     state.preservedNoteDraft = Boolean(draft);
     state.noteReady = false;
+    const scope = noteScope();
     setNoteControls();
     if (state.readOnly) { elements["note-status"].textContent = "记录未连接"; return; }
     if (!item || !String(item.exercise || "").trim()) return;
@@ -1206,11 +1298,12 @@
         `/api/notes?module=${encodeURIComponent(state.module)}&resource_id=${encodeURIComponent(resourceId)}`,
         { preserveVersion: Boolean(draft) },
       );
-      if (state.readOnly || token !== state.loadingResourceToken || resourceId !== state.selectedId) return;
+      if (!currentNoteScope(scope)) return;
       if (draft) {
         if (window.HUB_REMOTE?.kind === "shared") {
           if (draft.sha === undefined) throw new Error("草稿原版本不可用。");
           window.HUB_REMOTE.acceptNoteSnapshot(state.module, resourceId, { sha: draft.sha });
+          if (data?.sha !== draft.sha) state.noteSyncFailed = true;
         }
       } else {
         elements["note-answer"].value = data && typeof data.answer === "string" ? data.answer : "";
@@ -1219,58 +1312,70 @@
       }
       state.noteReady = true;
       state.preservedNoteDraft = false;
-      elements["note-status"].textContent = draft ? data?.answer !== draft.baseline
-        ? "共享回答已更新；草稿已保留，保存时会检查原版本。" : "已保留尚未保存的回答。"
+      elements["note-status"].textContent = draft ? state.noteSyncFailed
+        ? data?.sha !== draft.sha ? "共享回答已更新；草稿已保留，保存时会检查原版本。"
+          : "草稿已保留，请重试保存。" : "已保留尚未保存的回答。"
         : elements["note-answer"].value
         ? "已载入你上次保存的回答。"
-        : window.HUB_REMOTE?.kind === "shared" ? "回答与对话共享保存。" : "回答保存在本机；发送问题时，会连同当前资料用于讨论。";
+        : window.HUB_REMOTE?.kind === "shared" ? "修改后自动保存到共享记录。" : "回答保存在本机；发送问题时，会连同当前资料用于讨论。";
     } catch (error) {
-      if (!(error instanceof AuthRequiredError) && token === state.loadingResourceToken) {
+      if (!(error instanceof AuthRequiredError) && currentNoteScope(scope)) {
         elements["note-status"].textContent = "暂时无法读取回答。为保护已有笔记，请刷新重试后再编辑。";
       }
     } finally {
-      if (token === state.loadingResourceToken) {
+      if (currentNoteScope(scope)) {
         setNoteControls();
+        scheduleNoteSave();
       }
     }
   }
 
-  async function saveNote() {
+  async function saveNote(options = {}) {
     const resourceId = state.selectedId;
-    if (state.readOnly || !resourceId || !state.noteReady || state.savingNote) return false;
+    const automatic = options.automatic === true;
+    if (state.readOnly || elements["app-shell"].hidden || !resourceId || !state.noteReady
+        || state.savingNote || state.noteComposing || automatic && !canAutoSaveNote()) return false;
+    clearNoteSaveTimer();
+    if (!noteIsDirty()) return true;
     const answer = elements["note-answer"].value;
+    state.noteSaveToken += 1;
+    const scope = noteScope();
     state.savingNote = true;
     setNoteControls();
-    elements["save-note"].textContent = "保存中…";
     elements["note-status"].textContent = "正在保存回答…";
     try {
       const saved = await api("/api/notes", {
         method: "PUT",
         body: {
-          module: state.module,
+          module: scope.module,
           resource_id: resourceId,
           answer,
         },
       });
-      if (resourceId === state.selectedId) {
-        state.noteBaseline = answer;
-        state.noteSHA = saved?.sha;
-        elements["note-status"].textContent = noteIsDirty()
-          ? "刚才的版本已保存；新修改还没有保存。"
-          : window.HUB_REMOTE?.kind === "shared" ? "已保存到共享记录。" : "已保存到你的私有 Hub。";
+      if (!currentNoteScope(scope)) return false;
+      if (window.HUB_REMOTE?.kind === "shared" && saved?.sha === undefined) {
+        throw new Error("共享记录未返回保存版本。");
       }
-      notify("回答已保存");
+      state.noteBaseline = answer;
+      state.noteSHA = saved?.sha;
+      state.noteSyncFailed = false;
+      state.noteEditRevision += 1;
+      elements["note-status"].textContent = noteIsDirty()
+        ? window.HUB_REMOTE?.kind === "shared" ? "刚才的版本已保存；新修改待同步。" : "刚才的版本已保存；新修改还没有保存。"
+        : window.HUB_REMOTE?.kind === "shared" ? "已同步。" : "已保存到你的私有 Hub。";
+      if (!automatic) notify("回答已保存");
       return !noteIsDirty();
     } catch (error) {
-      if (!(error instanceof AuthRequiredError)) {
-        elements["note-status"].textContent = error.message || "保存失败，请稍后重试。";
+      if (currentNoteScope(scope)) {
+        state.noteSyncFailed = true;
+        elements["note-status"].textContent = `${error.message || "保存未完成。"} 草稿已保留，可重试。`;
       }
       return false;
     } finally {
-      state.savingNote = false;
-      if (resourceId === state.selectedId) {
+      if (currentNoteScope(scope)) {
+        state.savingNote = false;
         setNoteControls();
-        elements["save-note"].textContent = "保存回答";
+        scheduleNoteSave();
       }
     }
   }
