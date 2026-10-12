@@ -5,11 +5,17 @@ window.HUB_STUDY_NAVIGATION = (panel, select, toolbar, counter, onPosition = () 
   const update = () => {
     scheduled = false;
     if (!targets.length || !select.getClientRects().length) return;
-    const boundary = toolbar.getBoundingClientRect().bottom + 24;
+    const toolbarBoundary = toolbar.getBoundingClientRect().bottom + 24;
+    const panelStart = panel.getBoundingClientRect().top + panel.clientTop;
     let current = targets[0];
     for (const target of targets) {
+      // Native start-alignment includes this target's CSS scroll margin. Use the
+      // same reading band so a completed jump does not reselect its predecessor.
+      const margin = Number.parseFloat(getComputedStyle(target.element).scrollMarginTop);
+      const boundary = Number.isFinite(margin) && margin > 0
+        ? Math.max(toolbarBoundary, panelStart + margin + 2)
+        : toolbarBoundary;
       if (target.element.getBoundingClientRect().top <= boundary) current = target;
-      else break;
     }
     select.value = current.value;
     counter.textContent = `${targets.indexOf(current) + 1} / ${targets.length}`;
