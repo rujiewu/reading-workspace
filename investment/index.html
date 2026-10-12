@@ -42,6 +42,7 @@
           </div>
           <p id="login-error" class="form-error" role="alert" hidden></p>
         </form>
+        <button id="public-read" class="practice-start" type="button" hidden>先阅读</button>
       </section>
     </main>
 
@@ -58,7 +59,7 @@
           <a href="/reading-workspace/investment/" data-module="investment">投资</a>
         </nav>
         <div class="header-actions">
-          <span>学习空间</span>
+          <span id="record-status">学习空间</span>
           <button id="focus-toggle" type="button" aria-label="进入专注阅读，收起目录和讨论" aria-pressed="false">专注阅读</button>
           <button id="theme-toggle" type="button" aria-label="切换到深色模式" aria-pressed="false">深色</button>
           <button id="logout" type="button" hidden>退出</button>
@@ -138,6 +139,7 @@
                 <span class="private-badge">本机保存</span>
               </div>
               <p id="exercise-prompt" class="exercise-prompt"></p>
+              <div id="answer-tools">
               <div class="practice-tools">
                 <button id="insert-worksheet" class="secondary-button" type="button" title="追加到回答末尾，保留已有笔记">加入提纲</button>
               </div>
@@ -149,6 +151,7 @@
               </div>
               <p id="note-status" role="status" aria-live="polite">回答保存在本机；发送问题时，会连同当前资料用于讨论。</p>
               <p class="practice-disclaimer">发送问题时附上当前资料与已保存回答。</p>
+              </div>
               <div id="practice-guide" class="practice-guide"></div>
             </section>
           </div>

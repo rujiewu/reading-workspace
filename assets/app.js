@@ -24,6 +24,14 @@
     bookLoadToken: 0,
     positionReady: false,
     refreshingShared: false,
+    readOnly: false,
+    authRequestToken: 0,
+    workspaceLoadToken: 0,
+    modeRevision: 0,
+    selectionRequestToken: 0,
+    noteSHA: undefined,
+    preservedNoteDraft: false,
+    publicChatDraft: null,
   };
 
   const elements = {};
@@ -41,7 +49,7 @@
     studyNavigation = window.HUB_STUDY_NAVIGATION(document.getElementById("resource-detail"),
       elements["study-section"], document.querySelector(".detail-navigation"), document.getElementById("study-position"),
       value => {
-        if (state.positionReady && state.detailView === "text") {
+        if (!state.readOnly && state.positionReady && state.detailView === "text") {
           const key = readingSectionKey(value);
           if (key) workspaceState.rememberSection(state.module, state.selectedId, key);
         }
@@ -51,7 +59,10 @@
     configureModule();
     bindEvents();
     setPane("read");
-    checkAuthentication();
+    elements["public-read"].hidden = window.HUB_REMOTE?.kind !== "shared";
+    if (window.HUB_REMOTE?.kind === "shared" && new URLSearchParams(location.search).get("read") === "public") {
+      enterPublicReading();
+    } else checkAuthentication();
   }
 
   function collectElements() {
@@ -68,6 +79,7 @@
       "practice-guide", "insert-worksheet", "discuss-note",
       "study-section", "study-practice",
       "focus-toggle", "resume-status",
+      "public-read", "record-status", "answer-tools",
     ].forEach((id) => {
       elements[id] = document.getElementById(id);
     });
@@ -123,7 +135,8 @@
 
   function bindEvents() {
     elements["login-form"].addEventListener("submit", login);
-    elements.logout.addEventListener("click", logout);
+    elements["public-read"].addEventListener("click", enterPublicReading);
+    elements.logout.addEventListener("click", () => state.readOnly ? showLogin() : logout());
     elements["theme-toggle"].addEventListener("click", toggleTheme);
     elements["focus-toggle"].addEventListener("click", () => {
       setFocus(document.documentElement.dataset.focus !== "true");
@@ -133,7 +146,7 @@
     elements["study-section"].addEventListener("change", () => {
       if (elements["study-section"].value === "extensions") {
         jumpTo("links-title");
-        if (state.positionReady) workspaceState.rememberSection(state.module, state.selectedId, "extensions");
+        if (!state.readOnly && state.positionReady) workspaceState.rememberSection(state.module, state.selectedId, "extensions");
       }
       else selectStudy(Number(elements["study-section"].value));
     });
@@ -212,8 +225,11 @@
   }
 
   async function checkAuthentication() {
+    const token = ++state.authRequestToken;
+    if (window.HUB_REMOTE?.kind === "shared") showLogin();
     try {
       const me = await api("/api/me", { allowUnauthenticated: true });
+      if (token !== state.authRequestToken || state.readOnly) return;
       elements.logout.hidden = !me.password_required;
       if (me && me.authenticated) {
         showApp();
@@ -222,6 +238,11 @@
         showLogin();
       }
     } catch (error) {
+      if (token !== state.authRequestToken || state.readOnly) return;
+      if (window.HUB_REMOTE?.kind === "shared") {
+        showLogin(error.message || "记录暂时无法连接，可以先阅读。");
+        return;
+      }
       showApp();
       renderWorkspaceError("暂时无法连接工作台，请刷新后重试。");
     }
@@ -231,6 +252,13 @@
     event.preventDefault();
     const password = elements.password.value;
     if (!password || elements["login-submit"].disabled) return;
+    const token = ++state.authRequestToken;
+    const selection = state.selectedId;
+    const position = selection ? captureReadingPosition() : null;
+    const draft = noteIsDirty() ? {
+      resourceId: selection, answer: elements["note-answer"].value,
+      baseline: state.noteBaseline, sha: state.noteSHA,
+    } : null;
 
     setLoginPending(true);
     elements["login-error"].hidden = true;
@@ -241,20 +269,130 @@
         body: { password },
         allowUnauthenticated: true,
       });
+      if (token !== state.authRequestToken) return;
+      setReadOnly(false);
       elements.password.value = "";
       elements.logout.hidden = false;
       showApp();
       authenticated = true;
     } catch (error) {
+      if (token !== state.authRequestToken) return;
       elements["login-error"].textContent = error instanceof AuthRequiredError
         ? "密码不正确，请再试一次。"
         : error.message || "暂时无法登录，请稍后重试。";
       elements["login-error"].hidden = false;
       elements.password.select();
     } finally {
-      setLoginPending(false);
+      if (token === state.authRequestToken) setLoginPending(false);
     }
-    if (authenticated) await loadWorkspace();
+    if (authenticated) await loadWorkspace({ selection, position, draft, reconnect: true });
+  }
+
+  function captureReadingPosition() {
+    const panel = document.getElementById("resource-detail");
+    const target = readingTarget(elements["study-section"].value);
+    return { view: state.detailView, section: readingSectionKey(elements["study-section"].value),
+      offset: target ? target.getBoundingClientRect().top - panel.getBoundingClientRect().top : null,
+      scroll: panel.scrollTop, detailScroll: { ...state.detailScroll } };
+  }
+
+  function restoreCurrentPosition(position) {
+    if (!position) return;
+    const panel = document.getElementById("resource-detail");
+    state.detailScroll = { ...position.detailScroll };
+    setDetailView(position.view);
+    const option = [...elements["study-section"].options]
+      .find(entry => readingSectionKey(entry.value) === position.section);
+    if (position.view === "text" && option) {
+      elements["study-section"].value = option.value;
+      const target = readingTarget(option.value);
+      if (target && Number.isFinite(position.offset)) {
+        panel.scrollTop += target.getBoundingClientRect().top - panel.getBoundingClientRect().top - position.offset;
+      }
+    } else panel.scrollTop = position.scroll;
+    studyNavigation.refresh();
+  }
+
+  function moduleHref(href) {
+    if (!href || href.startsWith("#")) return href;
+    const url = new URL(href, location.href);
+    if (url.origin !== location.origin) return href;
+    const modulePath = /\/(reading|learning|trading|investment)\/?$/;
+    if (!modulePath.test(url.pathname)) return href;
+    const base = String(window.HUB_SITE_BASE || "").replace(/\/$/, "");
+    if (base && /^\/(reading|learning|trading|investment)\/?$/.test(url.pathname)) url.pathname = base + url.pathname;
+    if (state.readOnly) url.searchParams.set("read", "public");
+    else url.searchParams.delete("read");
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  function setReadOnly(enabled) {
+    state.readOnly = enabled;
+    state.modeRevision += 1;
+    window.HUB_REMOTE?.setReadOnly?.(enabled);
+    document.documentElement.dataset.readOnly = String(enabled);
+    elements["record-status"].textContent = enabled ? "记录未连接" : "学习空间";
+    elements.logout.textContent = enabled ? "连接记录" : "退出";
+    elements.logout.hidden = false;
+    elements["answer-tools"].hidden = enabled;
+    elements["history-drawer"].hidden = enabled;
+    document.querySelector(".chat-panel").hidden = enabled;
+    document.querySelector('button[data-pane="chat"]').hidden = enabled;
+    elements["model-meta"].hidden = enabled;
+    if (window.HUB_REMOTE?.kind === "shared") {
+      document.querySelector(".private-badge").textContent = enabled ? "记录未连接" : "共享保存";
+    }
+    document.querySelectorAll("[data-module], .site-header .brand, #text-section a[href], #detail-placement a[href]")
+      .forEach(link => link.setAttribute("href", moduleHref(link.getAttribute("href"))));
+    document.querySelectorAll(".section-discussion").forEach(part => {
+      part.hidden = enabled;
+      part.querySelector("button").disabled = enabled;
+    });
+    document.getElementById("book-study")?.shadowRoot?.querySelectorAll(".book-discuss").forEach(button => {
+      button.disabled = enabled;
+      button.hidden = enabled;
+    });
+    setNoteControls();
+    disableComposer(true);
+    if (enabled) setPane("read");
+    const url = new URL(location.href);
+    if (enabled) url.searchParams.set("read", "public");
+    else url.searchParams.delete("read");
+    history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  async function enterPublicReading() {
+    if (window.HUB_REMOTE?.kind !== "shared" || !mayLeaveNote()) return;
+    if (state.sending) { notify("当前对话正在处理中，请稍后再阅读。"); return; }
+    const selection = state.selectedId;
+    const position = selection ? captureReadingPosition() : null;
+    if (elements["chat-input"].value.trim()) state.publicChatDraft = {
+      resourceId: selection, text: elements["chat-input"].value,
+    };
+    state.authRequestToken += 1;
+    state.workspaceLoadToken += 1;
+    state.loadingResourceToken += 1;
+    state.sessionLoadToken += 1;
+    state.chatRequestToken += 1;
+    state.bookLoadToken += 1;
+    state.noteReady = false;
+    state.noteBaseline = "";
+    state.noteSHA = undefined;
+    state.preservedNoteDraft = false;
+    elements["note-answer"].value = "";
+    elements["chat-input"].value = "";
+    state.sessions = [];
+    state.sessionId = null;
+    state.sessionResourceId = null;
+    state.selectedId = null;
+    elements["history-drawer"].open = false;
+    setReadOnly(true);
+    renderMessages([]);
+    renderSessions();
+    elements["note-status"].textContent = "记录未连接";
+    setLoginPending(false);
+    showApp();
+    await loadWorkspace({ selection, position });
   }
 
   function setLoginPending(pending) {
@@ -308,18 +446,22 @@
     elements["app-shell"].hidden = false;
   }
 
-  async function loadWorkspace() {
-    setCatalogStatus("正在同步…");
+  async function loadWorkspace(options = {}) {
+    const token = ++state.workspaceLoadToken;
+    const mode = state.readOnly;
+    setCatalogStatus(mode ? "正在读取…" : "正在同步…");
     try {
       const [catalog] = await Promise.all([
         api(`/api/catalog?module=${encodeURIComponent(state.module)}`),
-        refreshSessions(),
+        mode ? Promise.resolve() : refreshSessions(),
       ]);
+      if (token !== state.workspaceLoadToken || mode !== state.readOnly) return;
       state.items = Array.isArray(catalog.items) ? catalog.items : [];
-      if (window.HUB_REMOTE?.restoreNavigation) {
+      if (!mode && window.HUB_REMOTE?.restoreNavigation) {
         try { await window.HUB_REMOTE.restoreNavigation(); }
         catch { setCatalogStatus("阅读位置暂未同步；可以继续阅读。"); }
       }
+      if (token !== state.workspaceLoadToken || mode !== state.readOnly) return;
       elements["resource-group"].replaceChildren(new Option("全部分类", ""));
       [...new Set(state.items.map(item => item.group))].forEach(group => {
         elements["resource-group"].append(new Option(group, group));
@@ -333,15 +475,29 @@
         return;
       }
 
-      const requestedId = new URLSearchParams(window.location.search).get("resource");
-      const initialId = workspaceState.initial(state.module, state.items.map(item => item.id),
-        requestedId, MODULES[state.module].initialResource);
-      await selectResource(initialId, { updateUrl: false, resumeSection: !window.location.hash });
+      const requestedId = options.selection || new URLSearchParams(window.location.search).get("resource");
+      const ids = state.items.map(item => item.id);
+      const initialId = mode ? ids.includes(requestedId) ? requestedId
+        : ids.includes(MODULES[state.module].initialResource) ? MODULES[state.module].initialResource : ids[0]
+        : workspaceState.initial(state.module, ids, requestedId, MODULES[state.module].initialResource);
+      await selectResource(initialId, { updateUrl: false, resumeSection: !window.location.hash,
+        forceReload: options.reconnect, draft: options.draft, position: options.position });
+      if (token !== state.workspaceLoadToken || mode !== state.readOnly) return;
+      if (options.reconnect && state.publicChatDraft?.resourceId === state.selectedId) {
+        elements["chat-input"].value = state.publicChatDraft.text;
+        state.publicChatDraft = null;
+      }
+      if (options.reconnect && state.sessionId) {
+        const session = state.sessions.find(entry => entry.id === state.sessionId && entry.resource_id === initialId);
+        if (session) await loadSession(session.id);
+        else clearCurrentConversation();
+      }
       if (window.location.hash === "#links-section") {
         if (state.bookStudy) window.HUB_BOOK_STUDY.jump("sources");
         else jumpTo("links-title");
       }
     } catch (error) {
+      if (token !== state.workspaceLoadToken || mode !== state.readOnly) return;
       if (error instanceof AuthRequiredError) return;
       setCatalogStatus("同步失败");
       renderWorkspaceError(error.message || "资料加载失败，请刷新后重试。");
@@ -349,7 +505,7 @@
   }
 
   async function refreshSharedState() {
-    if (window.HUB_REMOTE?.kind !== "shared" || elements["app-shell"].hidden
+    if (state.readOnly || window.HUB_REMOTE?.kind !== "shared" || elements["app-shell"].hidden
         || state.refreshingShared || state.sending || state.savingNote) return;
     state.refreshingShared = true;
     const resourceId = state.selectedId;
@@ -372,6 +528,7 @@
           if (answer !== state.noteBaseline) elements["note-status"].textContent = "已同步最新回答。";
           elements["note-answer"].value = answer;
           state.noteBaseline = answer;
+          state.noteSHA = record.sha;
         }
       }
       if (sessionId && sessionId === state.sessionId && !state.sending) {
@@ -555,8 +712,11 @@
   async function selectResource(resourceId, options) {
     const item = findItem(resourceId);
     if (!item) return false;
-    if (state.selectedId === item.id) return true;
-    if (!mayLeaveNote()) return false;
+    if (state.selectedId === item.id && !options?.forceReload) return true;
+    const draft = options?.draft?.resourceId === item.id ? options.draft : null;
+    if (!draft && !mayLeaveNote()) return false;
+    const operation = ++state.selectionRequestToken;
+    const mode = state.modeRevision;
 
     const changed = state.selectedId !== item.id;
     state.positionReady = false;
@@ -569,38 +729,48 @@
       active.offsetTop - elements["resource-list"].offsetTop - 36);
     renderResource(item);
     elements["chat-context"].textContent = item.title || "未命名资料";
-    elements["chat-input"].disabled = false;
-    elements["new-session"].disabled = false;
+    disableComposer(state.readOnly);
 
     if (changed) {
       clearCurrentConversation();
       if (options && options.updateUrl) updateResourceUrl(item.id);
     }
-    await Promise.all([loadNote(item.id), state.module === "reading" && item.kind === "book" ? loadBookStudy(item) : Promise.resolve()]);
-    if (state.selectedId !== item.id) return false;
-    workspaceState.remember(state.module, item.id);
-    restoreReadingPosition(item, options?.resumeSection !== false);
+    await Promise.all([loadNote(item.id, { draft }), state.module === "reading" && item.kind === "book" ? loadBookStudy(item) : Promise.resolve()]);
+    if (state.selectedId !== item.id || operation !== state.selectionRequestToken || mode !== state.modeRevision) return false;
+    if (!state.readOnly) workspaceState.remember(state.module, item.id);
+    restoreReadingPosition(item, !options?.position && options?.resumeSection !== false);
+    restoreCurrentPosition(options?.position);
+    disableComposer(state.readOnly);
     return true;
   }
 
   async function loadBookStudy(item) {
     const token = ++state.bookLoadToken;
+    const mode = state.modeRevision;
     const host = document.getElementById("book-study");
     host.hidden = false;
     host.replaceChildren(make("p", "", "正在载入完整研究…"));
     try {
       const study = await api(`/api/reading/${encodeURIComponent(item.id)}/study`);
-      if (token !== state.bookLoadToken || state.selectedId !== item.id) return;
+      if (token !== state.bookLoadToken || mode !== state.modeRevision || state.selectedId !== item.id) return;
       state.bookStudy = study;
-      await window.HUB_BOOK_STUDY.mount(host, study, section => {
-        if (state.sending) return;
+      const mounted = window.HUB_BOOK_STUDY.mount(host, study, section => {
+        if (state.readOnly || state.sending) return;
         if (elements["chat-input"].value.trim() && !window.confirm("替换输入框里尚未发送的问题吗？")) return;
         const position = study.sections.findIndex(entry => entry.id === section.id) + 1;
         elements["chat-input"].value = window.HUB_STUDY.question(item, { ...section, position }, "explain");
         setPane("chat");
         elements["chat-input"].focus();
       });
-      if (token !== state.bookLoadToken || state.selectedId !== item.id) return;
+      host.shadowRoot.querySelectorAll(".book-discuss").forEach(button => {
+        button.disabled = state.readOnly;
+        button.hidden = state.readOnly;
+      });
+      host.shadowRoot.querySelectorAll("a[href]").forEach(link => {
+        link.setAttribute("href", moduleHref(link.getAttribute("href")));
+      });
+      await mounted;
+      if (token !== state.bookLoadToken || mode !== state.modeRevision || state.selectedId !== item.id) return;
       elements["study-section"].replaceChildren();
       let group;
       study.sections.forEach((section, index) => {
@@ -624,7 +794,7 @@
       const match = query ? study.sections.findIndex(section => normalize(section.text).includes(query)) : -1;
       if (match >= 0 && state.detailView === "text") selectStudy(match);
     } catch (error) {
-      if (token !== state.bookLoadToken || state.selectedId !== item.id) return;
+      if (token !== state.bookLoadToken || mode !== state.modeRevision || state.selectedId !== item.id) return;
       host.replaceChildren(make("p", "", error.message || "完整研究加载失败。"));
       const retry = make("button", "secondary-button", "重新加载");
       retry.type = "button";
@@ -682,8 +852,8 @@
     const hasExercise = Boolean(String(item.exercise || "").trim());
     elements["exercise-panel"].hidden = !hasExercise;
     elements["exercise-prompt"].textContent = hasExercise ? item.exercise : "";
-    elements["note-answer"].disabled = !hasExercise;
-    elements["save-note"].disabled = !hasExercise;
+    elements["note-answer"].disabled = state.readOnly || !hasExercise;
+    elements["save-note"].disabled = state.readOnly || !hasExercise;
     renderPractice(item);
     renderMaterialSequence(item);
     state.detailView = "text";
@@ -726,7 +896,7 @@
       prerequisites.forEach((target, index) => {
         if (index) prerequisiteList.append(document.createTextNode("、"));
         const link = make("a", "", target.title);
-        link.href = `/${state.module}?resource=${encodeURIComponent(target.id)}`;
+        link.href = moduleHref(`/${state.module}?resource=${encodeURIComponent(target.id)}`);
         link.addEventListener("click", event => {
           if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button) return;
           event.preventDefault();
@@ -750,7 +920,7 @@
       const target = findItem(item.sequence[key]);
       if (!target) continue;
       const link = make("a", "");
-      link.href = `/${state.module}?resource=${encodeURIComponent(target.id)}`;
+      link.href = moduleHref(`/${state.module}?resource=${encodeURIComponent(target.id)}`);
       link.append(make("span", "", label), make("strong", "", target.title));
       link.addEventListener("click", event => {
         if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button) return;
@@ -787,8 +957,10 @@
   }
 
   function restoreReadingPosition(item, resume = true) {
+    const operation = state.selectionRequestToken;
+    const mode = state.modeRevision;
     if (state.module === "reading" && item.kind === "book" && !state.bookStudy) return;
-    const saved = resume && !elements["resource-search"].value
+    const saved = !state.readOnly && resume && !elements["resource-search"].value
       ? workspaceState.section(state.module, item.id) : null;
     const option = saved && Array.from(elements["study-section"].options)
       .find(entry => readingSectionKey(entry.value) === saved);
@@ -801,7 +973,7 @@
       }
     }
     requestAnimationFrame(() => {
-      if (state.selectedId !== item.id) return;
+      if (state.selectedId !== item.id || operation !== state.selectionRequestToken || mode !== state.modeRevision) return;
       state.positionReady = true;
       studyNavigation.refresh();
     });
@@ -818,7 +990,7 @@
     if (target && Number.isFinite(before)) {
       document.getElementById("resource-detail").scrollTop += target.getBoundingClientRect().top - before;
     }
-    if (persist) workspaceState.setFocus(enabled);
+    if (persist && !state.readOnly) workspaceState.setFocus(enabled);
     studyNavigation?.refresh();
   }
 
@@ -828,14 +1000,14 @@
       if (section) {
         elements["study-section"].value = String(index);
         window.HUB_BOOK_STUDY.jump(section.id);
-        if (state.positionReady) workspaceState.rememberSection(state.module, state.selectedId, readingSectionKey(String(index)));
+        if (!state.readOnly && state.positionReady) workspaceState.rememberSection(state.module, state.selectedId, readingSectionKey(String(index)));
       }
       return;
     }
     if (index < 0 || index >= state.studySections.length) return;
     elements["study-section"].value = String(index);
     jumpTo(`study-heading-${index}`);
-    if (state.positionReady) workspaceState.rememberSection(state.module, state.selectedId, readingSectionKey(String(index)));
+    if (!state.readOnly && state.positionReady) workspaceState.rememberSection(state.module, state.selectedId, readingSectionKey(String(index)));
   }
 
   function jumpTo(id) {
@@ -883,15 +1055,17 @@
       discussion.setAttribute("aria-label", `讨论：${section.title}`);
       const button = make("button", "", "讨论这一段 ↗");
       button.type = "button";
+      button.disabled = state.readOnly;
       button.setAttribute("aria-label", `讨论：${section.title}`);
       button.addEventListener("click", () => {
-        if (state.sending) return;
+        if (state.readOnly || state.sending) return;
         if (elements["chat-input"].value.trim() && !window.confirm("替换输入框里尚未发送的问题吗？")) return;
         elements["chat-input"].value = window.HUB_STUDY.question(item, section, "explain");
         setPane("chat");
         elements["chat-input"].focus();
       });
       discussion.append(button);
+      discussion.hidden = state.readOnly;
       part.append(discussion);
       body.append(part);
     });
@@ -939,7 +1113,7 @@
   }
 
   function noteIsDirty() {
-    return state.noteReady && elements["note-answer"].value !== state.noteBaseline;
+    return state.preservedNoteDraft || state.noteReady && elements["note-answer"].value !== state.noteBaseline;
   }
 
   function mayLeaveNote() {
@@ -951,15 +1125,15 @@
   }
 
   function setNoteControls() {
-    elements["note-answer"].disabled = !state.noteReady;
+    elements["note-answer"].disabled = state.readOnly || !state.noteReady;
     ["save-note", "insert-worksheet", "discuss-note"].forEach(id => {
-      elements[id].disabled = !state.noteReady || state.savingNote;
+      elements[id].disabled = state.readOnly || !state.noteReady || state.savingNote;
     });
   }
 
   function insertWorksheet() {
     const guide = findItem(state.selectedId)?.practice;
-    if (!guide || !state.noteReady || state.savingNote) return;
+    if (state.readOnly || !guide || !state.noteReady || state.savingNote) return;
     const answer = elements["note-answer"];
     const template = guide.worksheet.map(label => `${label}：\n`).join("\n");
     answer.value += (answer.value ? "\n\n" : "") + template;
@@ -969,7 +1143,7 @@
 
   async function prepareNoteDiscussion() {
     const item = findItem(state.selectedId);
-    if (!item?.practice || !state.noteReady || state.savingNote || state.sending) return;
+    if (state.readOnly || !item?.practice || !state.noteReady || state.savingNote || state.sending) return;
     if (!elements["note-answer"].value.trim()) {
       notify("先写下一个想法或疑问，再开始讨论。");
       elements["note-answer"].focus();
@@ -984,6 +1158,7 @@
   }
 
   function setPane(pane) {
+    if (state.readOnly && pane === "chat") return;
     if (pane !== "read" && window.matchMedia("(min-width: 1181px)").matches
         && document.documentElement.dataset.focus === "true") setFocus(false);
     document.documentElement.dataset.pane = pane;
@@ -999,7 +1174,7 @@
       .filter((entry) => entry.href);
     safeLinks.forEach(({ link, href }) => {
       const anchor = make("a", "resource-link", link.label || "打开资料");
-      anchor.href = href;
+      anchor.href = moduleHref(href);
       anchor.target = "_blank";
       anchor.rel = "noopener noreferrer";
       anchor.setAttribute("aria-label", `${link.label || "打开资料"}（新标签页）`);
@@ -1010,13 +1185,17 @@
     });
   }
 
-  async function loadNote(resourceId) {
+  async function loadNote(resourceId, options = {}) {
     const item = findItem(resourceId);
     const token = ++state.loadingResourceToken;
-    elements["note-answer"].value = "";
-    state.noteBaseline = "";
+    const draft = options.draft;
+    elements["note-answer"].value = draft ? draft.answer : "";
+    state.noteBaseline = draft ? draft.baseline : "";
+    state.noteSHA = draft?.sha;
+    state.preservedNoteDraft = Boolean(draft);
     state.noteReady = false;
     setNoteControls();
+    if (state.readOnly) { elements["note-status"].textContent = "记录未连接"; return; }
     if (!item || !String(item.exercise || "").trim()) return;
 
     elements["note-answer"].disabled = true;
@@ -1025,12 +1204,24 @@
     try {
       const data = await api(
         `/api/notes?module=${encodeURIComponent(state.module)}&resource_id=${encodeURIComponent(resourceId)}`,
+        { preserveVersion: Boolean(draft) },
       );
-      if (token !== state.loadingResourceToken || resourceId !== state.selectedId) return;
-      elements["note-answer"].value = data && typeof data.answer === "string" ? data.answer : "";
-      state.noteBaseline = elements["note-answer"].value;
+      if (state.readOnly || token !== state.loadingResourceToken || resourceId !== state.selectedId) return;
+      if (draft) {
+        if (window.HUB_REMOTE?.kind === "shared") {
+          if (draft.sha === undefined) throw new Error("草稿原版本不可用。");
+          window.HUB_REMOTE.acceptNoteSnapshot(state.module, resourceId, { sha: draft.sha });
+        }
+      } else {
+        elements["note-answer"].value = data && typeof data.answer === "string" ? data.answer : "";
+        state.noteBaseline = elements["note-answer"].value;
+        state.noteSHA = data?.sha;
+      }
       state.noteReady = true;
-      elements["note-status"].textContent = elements["note-answer"].value
+      state.preservedNoteDraft = false;
+      elements["note-status"].textContent = draft ? data?.answer !== draft.baseline
+        ? "共享回答已更新；草稿已保留，保存时会检查原版本。" : "已保留尚未保存的回答。"
+        : elements["note-answer"].value
         ? "已载入你上次保存的回答。"
         : window.HUB_REMOTE?.kind === "shared" ? "回答与对话共享保存。" : "回答保存在本机；发送问题时，会连同当前资料用于讨论。";
     } catch (error) {
@@ -1046,14 +1237,14 @@
 
   async function saveNote() {
     const resourceId = state.selectedId;
-    if (!resourceId || !state.noteReady || state.savingNote) return false;
+    if (state.readOnly || !resourceId || !state.noteReady || state.savingNote) return false;
     const answer = elements["note-answer"].value;
     state.savingNote = true;
     setNoteControls();
     elements["save-note"].textContent = "保存中…";
     elements["note-status"].textContent = "正在保存回答…";
     try {
-      await api("/api/notes", {
+      const saved = await api("/api/notes", {
         method: "PUT",
         body: {
           module: state.module,
@@ -1063,6 +1254,7 @@
       });
       if (resourceId === state.selectedId) {
         state.noteBaseline = answer;
+        state.noteSHA = saved?.sha;
         elements["note-status"].textContent = noteIsDirty()
           ? "刚才的版本已保存；新修改还没有保存。"
           : window.HUB_REMOTE?.kind === "shared" ? "已保存到共享记录。" : "已保存到你的私有 Hub。";
@@ -1084,11 +1276,15 @@
   }
 
   async function refreshSessions() {
+    if (state.readOnly) return;
+    const token = state.authRequestToken;
     try {
       const data = await api(`/api/sessions?module=${encodeURIComponent(state.module)}`);
+      if (state.readOnly || token !== state.authRequestToken) return;
       state.sessions = Array.isArray(data) ? data : [];
       renderSessions();
     } catch (error) {
+      if (state.readOnly || token !== state.authRequestToken) return;
       if (error instanceof AuthRequiredError) throw error;
       renderSessions("历史对话暂时无法读取。");
     }
@@ -1099,7 +1295,7 @@
     elements["session-count"].textContent = String(state.sessions.length);
     if (errorMessage || !state.sessions.length) {
       elements["session-list"].append(
-        make("p", "empty-list", errorMessage || "还没有历史对话。"),
+        make("p", "empty-list", state.readOnly ? "记录未连接" : errorMessage || "还没有历史对话。"),
       );
       return;
     }
@@ -1117,6 +1313,7 @@
   }
 
   async function createSession(resourceId) {
+    if (state.readOnly) throw new Error("记录未连接。");
     if (!resourceId) throw new Error("请先选择一项资料。");
     const data = await api("/api/sessions", {
       method: "POST",
@@ -1127,7 +1324,7 @@
   }
 
   async function startNewConversation() {
-    if (!state.selectedId || state.sending) return;
+    if (state.readOnly || !state.selectedId || state.sending) return;
     const resourceId = state.selectedId;
     const operationToken = ++state.chatRequestToken;
     const sessionToken = ++state.sessionLoadToken;
@@ -1154,7 +1351,7 @@
   }
 
   async function loadSession(sessionId) {
-    if (!sessionId || state.sending) return;
+    if (state.readOnly || !sessionId || state.sending) return;
     const operationToken = ++state.sessionLoadToken;
     setChatStatus("正在读取对话…");
     disableComposer(true);
@@ -1187,7 +1384,7 @@
   async function sendMessage(event) {
     event.preventDefault();
     const message = elements["chat-input"].value.trim();
-    if (!message || !state.selectedId || state.sending) return;
+    if (state.readOnly || !message || !state.selectedId || state.sending) return;
 
     const resourceId = state.selectedId;
     const requestToken = ++state.chatRequestToken;
@@ -1288,9 +1485,9 @@
   }
 
   function disableComposer(disabled) {
-    elements["chat-input"].disabled = disabled || !state.selectedId;
-    elements["chat-send"].disabled = disabled || !state.selectedId;
-    elements["new-session"].disabled = disabled || !state.selectedId;
+    elements["chat-input"].disabled = state.readOnly || disabled || !state.selectedId;
+    elements["chat-send"].disabled = state.readOnly || disabled || !state.selectedId;
+    elements["new-session"].disabled = state.readOnly || disabled || !state.selectedId;
   }
 
   function setChatStatus(message, isError) {
@@ -1318,6 +1515,10 @@
   async function api(path, options) {
     const settings = options || {};
     const method = (settings.method || "GET").toUpperCase();
+    if (state.readOnly && !(method === "GET" && (path.startsWith("/api/catalog?")
+        || /^\/api\/reading\/[a-z0-9_-]+\/study$/.test(path))) && path !== "/api/login") {
+      throw new Error("记录未连接。");
+    }
     const headers = { Accept: "application/json" };
     const request = {
       method,
@@ -1439,7 +1640,7 @@
       if (resourceHref) {
         const paragraph = make("p");
         const link = make("a", "", resourceLink[1] + " ↗");
-        link.href = resourceHref;
+        link.href = moduleHref(resourceHref);
         link.target = "_blank";
         link.rel = "noopener noreferrer";
         paragraph.append(link);

@@ -6,6 +6,10 @@
   gap: 16px;
   min-height: 0;
 }
+:root[data-read-only="true"] .workspace {
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+}
+#public-read { margin-top: 18px; }
 .library-panel, .detail-panel, .chat-panel {
   height: calc(100dvh - var(--header-height) - 36px);
   min-height: 0;

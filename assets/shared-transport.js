@@ -9,9 +9,10 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   const apiBase = String(config.apiBase || '').replace(/\/$/, '');
   const tokenKey = `hub-shared-session:${apiBase || 'unconfigured'}`;
   const cache = new Map();
+  const responseVersions = new WeakMap();
   const pendingQuestions = new Map();
   const changedSections = new Map();
-  let session = null, sessionRevision = 0;
+  let session = null, sessionRevision = 0, readOnly = false;
   let navigation = null, navigationDirty = false, navigationTimer, navigationRevision = 0;
   let navigationWrite = null;
   const identity = value => typeof value === 'string' && /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(value);
@@ -37,6 +38,12 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     try { storage().removeItem(tokenKey); } catch { /* Memory is already cleared. */ }
   }
 
+  function setReadOnly(value) {
+    if (typeof value !== 'boolean') throw new TypeError('Invalid public-reading state');
+    readOnly = value;
+    if (value) forgetSession();
+  }
+
   try {
     const saved = storage().getItem(tokenKey);
     if (saved) {
@@ -60,17 +67,34 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
 
   async function gateway(path, method = 'GET', body, unauthenticated = false) {
     const target = gatewayURL(path);
+    if (!unauthenticated && readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
     if (!unauthenticated && !validSession(session)) {
       forgetSession();
       return json({ detail: '请重新输入访问口令。' }, 401);
     }
     const revision = sessionRevision;
     const timeoutMs = path === '/api/login' ? 12000 : path.startsWith('/api/chat') ? 240000 : 60000;
-    const controller = new AbortController();
-    let timer, expired = false;
     const timeoutMessage = path === '/api/login'
       ? '连接验证服务超时，请检查网络后重试。'
       : '连接学习服务超时，请检查网络后重试。';
+    const response = await boundedFetch(target, {
+      method, credentials: 'omit', cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        ...(!unauthenticated && session ? { Authorization: `Bearer ${session.token}` } : {}),
+        ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-Hub-Request': '1' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    }, timeoutMs, timeoutMessage, '无法连接学习服务，请检查网络后重试。');
+    if (!unauthenticated && revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
+    if (response.status === 401 && !unauthenticated) forgetSession();
+    responseVersions.set(response, revision);
+    return response;
+  }
+
+  async function boundedFetch(target, settings, timeoutMs, timeoutMessage, networkMessage) {
+    const controller = new AbortController();
+    let timer, expired = false;
     const deadline = new Promise((_, reject) => {
       timer = setTimeout(() => {
         expired = true;
@@ -81,13 +105,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     try {
       const response = await Promise.race([deadline, (async () => {
         const reply = await fetcher(target, {
-          method, credentials: 'omit', cache: 'no-store',
-          headers: {
-            Accept: 'application/json',
-            ...(!unauthenticated && session ? { Authorization: `Bearer ${session.token}` } : {}),
-            ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-Hub-Request': '1' } : {}),
-          },
-          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          ...settings,
           signal: controller.signal,
         });
         // Cover a stalled response body as well as the connection, preserving
@@ -95,12 +113,10 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         await reply.clone().arrayBuffer();
         return reply;
       })()]);
-      if (!unauthenticated && revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
-      if (response.status === 401 && !unauthenticated) forgetSession();
       return response;
     } catch (error) {
       if (expired) throw new Error(timeoutMessage);
-      if (error instanceof TypeError) throw new Error('无法连接学习服务，请检查网络后重试。');
+      if (error instanceof TypeError) throw new Error(networkMessage);
       throw error;
     } finally {
       clearTimeout(timer);
@@ -109,7 +125,10 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
 
   async function capture(response, key) {
     if (response.ok) {
+      const revision = responseVersions.get(response);
+      requireConnection(revision);
       const data = await response.clone().json();
+      requireConnection(revision);
       if (!Object.prototype.hasOwnProperty.call(data, 'sha')) {
         throw new Error('共享记录缺少版本信息，暂时不能覆盖保存。');
       }
@@ -118,8 +137,16 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     return response;
   }
 
+  function requireConnection(revision) {
+    if (readOnly || revision === undefined || revision !== sessionRevision || !validSession(session)) {
+      throw new Error('会话已更新，请重新读取记录。');
+    }
+  }
+
   async function staticJSON(path) {
-    const response = await fetcher(`${base}/${path}`, { cache: 'no-cache' });
+    const response = await boundedFetch(`${base}/${path}`, {
+      cache: 'no-cache', credentials: 'omit', headers: { Accept: 'application/json' },
+    }, 20000, '读取学习资料超时，请检查网络后重试。', '无法读取学习资料，请检查网络后重试。');
     if (!response.ok) throw new Error('学习资料暂时无法读取，请刷新后重试。');
     return response.json();
   }
@@ -135,11 +162,13 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
 
   async function restoreNavigation() {
     // A concurrent browser update must not replace a locally pending position.
-    if (navigationDirty) return;
+    if (readOnly || navigationDirty) return;
+    const revision = sessionRevision;
     const response = await gateway(`/api/preferences?module=${encodeURIComponent(config.module)}`);
     if (!response.ok) throw new Error('阅读位置暂时无法同步。');
     await capture(response, preferencesKey(config.module));
     const record = await response.json();
+    if (readOnly || revision !== sessionRevision) return;
     if (!record.sections || typeof record.sections !== 'object' || Array.isArray(record.sections)) {
       throw new Error('阅读位置记录格式无效。');
     }
@@ -165,33 +194,39 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
 
   async function flushNavigation() {
     clearTimeout(navigationTimer);
+    if (readOnly) return;
     if (navigationWrite) return navigationWrite;
     if (!navigationDirty || !navigation) return;
-    const revision = navigationRevision;
+    const revision = navigationRevision, connectionRevision = sessionRevision;
     const snapshot = { module: config.module, last_resource_id: navigation.last_resource_id,
       sections: { ...navigation.sections }, expected_sha: expectedSHA(preferencesKey(config.module)) };
     const edits = new Map(changedSections);
     navigationWrite = (async () => {
       let written = snapshot;
       let response = await gateway('/api/preferences', 'PUT', written);
+      requireConnection(connectionRevision);
       if (response.status === 409) {
         // Positions are navigation metadata. Preserve the other visitor's
         // untouched sections while merging only this browser's recent moves.
         const latestResponse = await gateway(`/api/preferences?module=${encodeURIComponent(config.module)}`);
+        requireConnection(connectionRevision);
         if (!latestResponse.ok) throw new Error('阅读位置暂未同步。');
         await capture(latestResponse, preferencesKey(config.module));
         const latest = await latestResponse.json();
+        requireConnection(connectionRevision);
         if (!latest.sections || typeof latest.sections !== 'object' || Array.isArray(latest.sections)) {
           throw new Error('阅读位置记录格式无效。');
         }
         const merged = { ...latest.sections };
         for (const [resource, edit] of edits) merged[resource] = edit.section;
         written = { ...snapshot, sections: merged, expected_sha: latest.sha };
+        requireConnection(connectionRevision);
         response = await gateway('/api/preferences', 'PUT', written);
       }
       if (!response.ok) throw new Error(response.status === 409
         ? '阅读位置在别处更新；当前浏览器保留你的位置。' : '阅读位置暂未同步。');
       await capture(response, preferencesKey(config.module));
+      if (readOnly || connectionRevision !== sessionRevision) return;
       const newer = [...changedSections].filter(([, edit]) => edit.revision > revision);
       navigation.sections = { ...written.sections };
       for (const [resource, edit] of newer) navigation.sections[resource] = edit.section;
@@ -203,11 +238,12 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     try { await navigationWrite; }
     finally {
       navigationWrite = null;
-      if (navigationDirty && revision !== navigationRevision) scheduleNavigation();
+      if (!readOnly && navigationDirty && revision !== navigationRevision) scheduleNavigation();
     }
   }
 
   function scheduleNavigation() {
+    if (readOnly) return;
     clearTimeout(navigationTimer);
     navigationTimer = setTimeout(() => flushNavigation().catch(() => {
       const status = document.getElementById('resume-status');
@@ -216,7 +252,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   }
 
   function rememberNavigation(module, resource, section) {
-    if (!navigation || module !== config.module || !identity(resource)) return;
+    if (readOnly || !navigation || module !== config.module || !identity(resource)) return;
     navigation.last_resource_id = resource;
     navigationDirty = true;
     navigationRevision++;
@@ -233,7 +269,15 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     const body = options.body ? JSON.parse(options.body) : undefined;
     const module = url.searchParams.get('module') || body?.module || config.module;
     if (!modules.has(module)) return json({ detail: '未知模块。' }, 422);
+    // These files are already anonymous, allowlisted GitHub Pages artifacts.
+    // Shared records and model calls still require the gateway session below.
+    if (method === 'GET' && url.pathname === '/api/catalog') {
+      return json(await staticJSON(`data/catalog-${module}.json`));
+    }
+    const study = url.pathname.match(/^\/api\/reading\/([a-z0-9_-]+)\/study$/);
+    if (method === 'GET' && study) return json(await staticJSON(`data/books/${study[1]}.json`));
     if (url.pathname === '/api/me') {
+      if (readOnly) return json({ authenticated: false, password_required: true });
       if (!validSession(session)) { forgetSession(); return json({ authenticated: false, password_required: true }); }
       return gateway('/api/me');
     }
@@ -257,7 +301,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     if (url.pathname === '/api/logout') {
       const revision = sessionRevision;
       let response;
-      try { response = validSession(session) ? await gateway('/api/logout', 'POST', {}) : json({ ok: true }); }
+      try { response = !readOnly && validSession(session) ? await gateway('/api/logout', 'POST', {}) : json({ ok: true }); }
       catch (error) {
         if (revision !== sessionRevision) throw error;
         response = json({ ok: true });
@@ -265,10 +309,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       finally { if (revision === sessionRevision) forgetSession(); }
       return response;
     }
+    if (readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
     if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问口令。' }, 401); }
-    if (url.pathname === '/api/catalog') return json(await staticJSON(`data/catalog-${module}.json`));
-    const study = url.pathname.match(/^\/api\/reading\/([a-z0-9_-]+)\/study$/);
-    if (study) return json(await staticJSON(`data/books/${study[1]}.json`));
     if (url.pathname === '/api/notes') {
       const resource = url.searchParams.get('resource_id') || body?.resource_id;
       if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
@@ -335,6 +377,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   }
 
   function acceptNoteSnapshot(module, resource, record) {
+    requireConnection(sessionRevision);
     if (!modules.has(module) || !identity(resource) || !record
         || !Object.prototype.hasOwnProperty.call(record, 'sha')) {
       throw new Error('共享记录缺少版本信息，暂时不能覆盖保存。');
@@ -342,7 +385,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     cache.set(noteKey(module, resource), record.sha);
   }
 
-  return Object.freeze({ kind: 'shared', restoreNavigation, flushNavigation, rememberNavigation, acceptNoteSnapshot,
+  return Object.freeze({ kind: 'shared', setReadOnly, restoreNavigation, flushNavigation, rememberNavigation, acceptNoteSnapshot,
     request: handle });
 };
 
