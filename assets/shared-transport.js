@@ -11,7 +11,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   const cache = new Map();
   const pendingQuestions = new Map();
   const changedSections = new Map();
-  let session = null;
+  let session = null, sessionRevision = 0;
   let navigation = null, navigationDirty = false, navigationTimer, navigationRevision = 0;
   let navigationWrite = null;
   const identity = value => typeof value === 'string' && /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(value);
@@ -27,6 +27,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   }
 
   function forgetSession() {
+    sessionRevision += 1;
     session = null;
     cache.clear();
     navigation = null;
@@ -63,18 +64,47 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       forgetSession();
       return json({ detail: '请重新输入访问口令。' }, 401);
     }
-    const response = await fetcher(target, {
-      method, credentials: 'omit', cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        ...(!unauthenticated && session ? { Authorization: `Bearer ${session.token}` } : {}),
-        ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-Hub-Request': '1' } : {}),
-      },
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(path.startsWith('/api/chat') ? 240000 : 60000),
+    const revision = sessionRevision;
+    const timeoutMs = path === '/api/login' ? 12000 : path.startsWith('/api/chat') ? 240000 : 60000;
+    const controller = new AbortController();
+    let timer, expired = false;
+    const timeoutMessage = path === '/api/login'
+      ? '连接验证服务超时，请检查网络后重试。'
+      : '连接学习服务超时，请检查网络后重试。';
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        expired = true;
+        controller.abort();
+        reject(new Error(timeoutMessage));
+      }, timeoutMs);
     });
-    if (response.status === 401 && !unauthenticated) forgetSession();
-    return response;
+    try {
+      const response = await Promise.race([deadline, (async () => {
+        const reply = await fetcher(target, {
+          method, credentials: 'omit', cache: 'no-store',
+          headers: {
+            Accept: 'application/json',
+            ...(!unauthenticated && session ? { Authorization: `Bearer ${session.token}` } : {}),
+            ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-Hub-Request': '1' } : {}),
+          },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          signal: controller.signal,
+        });
+        // Cover a stalled response body as well as the connection, preserving
+        // the original response for the existing JSON/version checks.
+        await reply.clone().arrayBuffer();
+        return reply;
+      })()]);
+      if (!unauthenticated && revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
+      if (response.status === 401 && !unauthenticated) forgetSession();
+      return response;
+    } catch (error) {
+      if (expired) throw new Error(timeoutMessage);
+      if (error instanceof TypeError) throw new Error('无法连接学习服务，请检查网络后重试。');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function capture(response, key) {
@@ -208,6 +238,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       return gateway('/api/me');
     }
     if (url.pathname === '/api/login') {
+      forgetSession();
+      const revision = sessionRevision;
       const response = await gateway('/api/login', 'POST', { password: body?.password }, true);
       if (!response.ok) return response;
       const connected = await response.clone().json();
@@ -216,16 +248,21 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         ? connected.expires_at * 1000 : typeof connected.expires_at === 'string' ? connected.expires_at : NaN);
       const authenticatedSession = { token: connected.token,
         expires_at: Number.isFinite(deadline.getTime()) ? deadline.toISOString() : '' };
+      if (revision !== sessionRevision) throw new Error('登录请求已取消，请重试。');
       if (!connected.authenticated || !validSession(authenticatedSession)) throw new Error('登录未完成，请重新输入口令。');
       session = authenticatedSession;
       try { storage().setItem(tokenKey, JSON.stringify(session)); } catch { /* Current-tab memory login remains valid. */ }
       return response;
     }
     if (url.pathname === '/api/logout') {
+      const revision = sessionRevision;
       let response;
       try { response = validSession(session) ? await gateway('/api/logout', 'POST', {}) : json({ ok: true }); }
-      catch { response = json({ ok: true }); }
-      finally { forgetSession(); }
+      catch (error) {
+        if (revision !== sessionRevision) throw error;
+        response = json({ ok: true });
+      }
+      finally { if (revision === sessionRevision) forgetSession(); }
       return response;
     }
     if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问口令。' }, 401); }

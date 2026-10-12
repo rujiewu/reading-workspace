@@ -230,10 +230,11 @@
   async function login(event) {
     event.preventDefault();
     const password = elements.password.value;
-    if (!password) return;
+    if (!password || elements["login-submit"].disabled) return;
 
     setLoginPending(true);
     elements["login-error"].hidden = true;
+    let authenticated = false;
     try {
       await api("/api/login", {
         method: "POST",
@@ -243,7 +244,7 @@
       elements.password.value = "";
       elements.logout.hidden = false;
       showApp();
-      await loadWorkspace();
+      authenticated = true;
     } catch (error) {
       elements["login-error"].textContent = error instanceof AuthRequiredError
         ? "密码不正确，请再试一次。"
@@ -253,6 +254,7 @@
     } finally {
       setLoginPending(false);
     }
+    if (authenticated) await loadWorkspace();
   }
 
   function setLoginPending(pending) {
