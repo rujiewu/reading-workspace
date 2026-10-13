@@ -116,13 +116,14 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         });
         // Cover a stalled response body as well as the connection, preserving
         // the original response for the existing JSON/version checks.
-        await reply.clone().arrayBuffer();
+        await reply.clone().json();
         return reply;
       })()]);
       return response;
     } catch (error) {
       if (expired) throw new Error(timeoutMessage);
       if (error instanceof TypeError) throw new Error(networkMessage);
+      if (error?.name === 'SyntaxError') throw new Error('服务回复传输未完成，请稍后重试当前操作。');
       throw error;
     } finally {
       clearTimeout(timer);
