@@ -11,6 +11,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   const cache = new Map();
   const responseVersions = new WeakMap();
   const pendingQuestions = new Map();
+  const sessionResources = new Map();
+  const studyPackets = new Map();
   const changedSections = new Map();
   let session = null, sessionRevision = 0, readOnly = false;
   let navigation = null, navigationDirty = false, navigationTimer, navigationRevision = 0;
@@ -31,6 +33,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     sessionRevision += 1;
     session = null;
     cache.clear();
+    sessionResources.clear();
     navigation = null;
     navigationDirty = false;
     changedSections.clear();
@@ -133,6 +136,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         throw new Error('共享记录缺少版本信息，暂时不能覆盖保存。');
       }
       cache.set(key, data.sha);
+      if (key.startsWith('session:') && identity(data.resource_id)) sessionResources.set(key, data.resource_id);
     }
     return response;
   }
@@ -148,7 +152,50 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       cache: 'no-cache', credentials: 'omit', headers: { Accept: 'application/json' },
     }, 20000, '读取学习资料超时，请检查网络后重试。', '无法读取学习资料，请检查网络后重试。');
     if (!response.ok) throw new Error('学习资料暂时无法读取，请刷新后重试。');
-    return response.json();
+    const bytes = await response.clone().arrayBuffer();
+    const data = await response.json();
+    studyPackets.set(path, { bytes, data });
+    return data;
+  }
+
+  async function chatPackets(module, resource) {
+    const revision = sessionRevision;
+    if (!identity(resource)) throw new Error('请重新读取所选对话和学习资料。');
+    const catalogPath = `data/catalog-${module}.json`;
+    if (!studyPackets.has(catalogPath)) await staticJSON(catalogPath);
+    const material = studyPackets.get(catalogPath).data.items?.find(item => item.id === resource);
+    if (!material) throw new Error('当前资料版本中没有这份材料，请刷新后再提交问题。');
+    const paths = [catalogPath];
+    if (module === 'reading' && material.kind === 'book') {
+      const bookPath = `data/books/${resource}.json`;
+      if (!studyPackets.has(bookPath)) await staticJSON(bookPath);
+      paths.push(bookPath);
+    }
+    if (!crypto.subtle) throw new Error('浏览器无法完成资料版本校验，请刷新或更换浏览器后重试。');
+    const expected = {};
+    const snapshots = new Map();
+    for (const path of paths) {
+      const packet = studyPackets.get(path);
+      snapshots.set(path, packet);
+      packet.sha ||= [...new Uint8Array(await crypto.subtle.digest('SHA-256', packet.bytes))]
+        .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      expected[path] = packet.sha;
+    }
+    const response = await gateway('/api/release');
+    requireConnection(revision);
+    if (!response.ok) throw new Error('资料版本校验暂未完成，问题已保留，请稍后再试。');
+    const release = await response.json();
+    requireConnection(revision);
+    if (paths.some(path => studyPackets.get(path) !== snapshots.get(path))) {
+      throw new Error('资料版本已更新，问题已保留，请重新核对后再提交。');
+    }
+    if (release.packaged !== true || release.chat_packet_validation !== 'sha256-v1') {
+      throw new Error('学习服务暂时无法核对资料版本，问题已保留，请稍后再试。');
+    }
+    if (paths.some(path => release.packets_sha256?.[path] !== expected[path])) {
+      throw new Error('网页与后台的资料版本尚未一致，问题已保留，请刷新后再试。');
+    }
+    return expected;
   }
 
   function noteKey(module, resource) { return `note:${module}:${resource}`; }
@@ -164,11 +211,12 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     // A concurrent browser update must not replace a locally pending position.
     if (readOnly || navigationDirty) return;
     const revision = sessionRevision;
+    const positionRevision = navigationRevision;
     const response = await gateway(`/api/preferences?module=${encodeURIComponent(config.module)}`);
     if (!response.ok) throw new Error('阅读位置暂时无法同步。');
     await capture(response, preferencesKey(config.module));
     const record = await response.json();
-    if (readOnly || revision !== sessionRevision) return;
+    if (readOnly || revision !== sessionRevision || positionRevision !== navigationRevision) return;
     if (!record.sections || typeof record.sections !== 'object' || Array.isArray(record.sections)) {
       throw new Error('阅读位置记录格式无效。');
     }
@@ -331,6 +379,9 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       if (response.ok) {
         const created = await response.clone().json();
         await capture(response, sessionKey(module, created.id));
+        if (identity(created.resource_id || body?.resource_id)) {
+          sessionResources.set(sessionKey(module, created.id), created.resource_id || body.resource_id);
+        }
       }
       return response;
     }
@@ -343,11 +394,13 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         if (!latest.ok) return latest;
         await capture(latest, key);
       }
+      const expectedPackets = await chatPackets(module, body?.resource_id || sessionResources.get(key));
       const questionKey = JSON.stringify([module, body?.session_id, body?.message]);
       let requestId = pendingQuestions.get(questionKey);
       if (!requestId) { requestId = uuid(); pendingQuestions.set(questionKey, requestId); }
       const response = await gateway('/api/chat', 'POST', {
         ...body, module, request_id: requestId, expected_sha: expectedSHA(key),
+        expected_packets_sha256: expectedPackets,
       });
       if (!response.ok) {
         const failure = await response.clone().json().catch(() => null);
