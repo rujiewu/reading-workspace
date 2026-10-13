@@ -12,6 +12,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   const responseVersions = new WeakMap();
   const pendingQuestions = new Map();
   const sessionResources = new Map();
+  const activeQuestions = new Map();
   const studyPackets = new Map();
   const changedSections = new Map();
   let session = null, sessionRevision = 0, readOnly = false;
@@ -34,6 +35,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     session = null;
     cache.clear();
     sessionResources.clear();
+    activeQuestions.clear();
     navigation = null;
     navigationDirty = false;
     changedSections.clear();
@@ -136,7 +138,12 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         throw new Error('共享记录缺少版本信息，暂时不能覆盖保存。');
       }
       cache.set(key, data.sha);
-      if (key.startsWith('session:') && identity(data.resource_id)) sessionResources.set(key, data.resource_id);
+      if (key.startsWith('session:')) {
+        if (identity(data.resource_id)) sessionResources.set(key, data.resource_id);
+        if (typeof data.active_request_id === 'string' && /^[a-f0-9]{32}$/.test(data.active_request_id)) {
+          activeQuestions.set(key, data.active_request_id);
+        } else activeQuestions.delete(key);
+      }
     }
     return response;
   }
@@ -214,12 +221,16 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     const positionRevision = navigationRevision;
     const response = await gateway(`/api/preferences?module=${encodeURIComponent(config.module)}`);
     if (!response.ok) throw new Error('阅读位置暂时无法同步。');
-    await capture(response, preferencesKey(config.module));
     const record = await response.json();
-    if (readOnly || revision !== sessionRevision || positionRevision !== navigationRevision) return;
+    requireConnection(revision);
+    // Apply values and their SHA together. A skipped refresh must not provide
+    // a new write baseline for the older local sections.
+    if (positionRevision !== navigationRevision) return;
     if (!record.sections || typeof record.sections !== 'object' || Array.isArray(record.sections)) {
       throw new Error('阅读位置记录格式无效。');
     }
+    if (!Object.prototype.hasOwnProperty.call(record, 'sha')) throw new Error('共享记录缺少版本信息，暂时不能覆盖保存。');
+    cache.set(preferencesKey(config.module), record.sha);
     navigation = { last_resource_id: record.last_resource_id || null, sections: { ...record.sections } };
     try {
       const lastKey = `hub-last-material-v1:${config.module}`;
@@ -394,9 +405,41 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
         if (!latest.ok) return latest;
         await capture(latest, key);
       }
-      const expectedPackets = await chatPackets(module, body?.resource_id || sessionResources.get(key));
+      const resource = body?.resource_id || sessionResources.get(key);
       const questionKey = JSON.stringify([module, body?.session_id, body?.message]);
       let requestId = pendingQuestions.get(questionKey);
+      let durable = false;
+      const reserved = activeQuestions.get(key);
+      if (reserved) {
+        // A new tab can recover a queued/answered reservation only when the
+        // user explicitly submits that exact question. Never bill an unknown.
+        const revision = sessionRevision;
+        const stored = await gateway(`/api/requests/${reserved}`);
+        if (!stored.ok && stored.status !== 404) return stored;
+        // Reservations precede initial request persistence. An interrupted
+        // queue write has no request/generation yet; retain the reserved ID.
+        if (stored.status === 404) {
+          requireConnection(revision);
+          requestId = reserved;
+          pendingQuestions.set(questionKey, requestId);
+        } else {
+          const request = await stored.json();
+          requireConnection(revision);
+          if (request.id !== reserved || request.module !== module || request.session_id !== body?.session_id
+              || request.resource_id !== resource) throw new Error('已有请求与所选对话不一致，问题已保留。');
+          if (request.message !== body?.message) return json({ detail: '这段对话还有未完成的问题，新问题已保留。' }, 409);
+          requestId = reserved;
+          pendingQuestions.set(questionKey, requestId);
+          if (['RUNNING', 'UNKNOWN'].includes(request.status) || (request.status === 'FAILED' && !request.failure_code)) {
+            return json({ detail: '该请求结果尚未核实。问题已保留，不会自动再次计费。' }, 409);
+          }
+          if (!['QUEUED', 'ANSWERED', 'COMPLETED', 'FAILED'].includes(request.status)) {
+            throw new Error('已有请求状态无法核实，问题已保留。');
+          }
+          durable = request.status !== 'QUEUED';
+        }
+      }
+      const expectedPackets = durable ? undefined : await chatPackets(module, resource);
       if (!requestId) { requestId = uuid(); pendingQuestions.set(questionKey, requestId); }
       const response = await gateway('/api/chat', 'POST', {
         ...body, module, request_id: requestId, expected_sha: expectedSHA(key),
