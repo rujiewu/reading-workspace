@@ -14,6 +14,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   const sessionResources = new Map();
   const activeQuestions = new Map();
   const studyPackets = new Map();
+  const studyReads = new Map();
   const changedSections = new Map();
   let session = null, sessionRevision = 0, readOnly = false;
   let navigation = null, navigationDirty = false, navigationTimer, navigationRevision = 0;
@@ -155,12 +156,17 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   }
 
   async function staticJSON(path) {
+    const revision = (studyReads.get(path) || 0) + 1;
+    studyReads.set(path, revision);
     const response = await boundedFetch(`${base}/${path}`, {
       cache: 'no-cache', credentials: 'omit', headers: { Accept: 'application/json' },
     }, 20000, '读取学习资料超时，请检查网络后重试。', '无法读取学习资料，请检查网络后重试。');
     if (!response.ok) throw new Error('学习资料暂时无法读取，请刷新后重试。');
     const bytes = await response.clone().arrayBuffer();
     const data = await response.json();
+    if (studyReads.get(path) !== revision) {
+      throw new Error('资料读取已更新，请使用最新版本。');
+    }
     studyPackets.set(path, { bytes, data });
     return data;
   }
@@ -409,26 +415,27 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       const questionKey = JSON.stringify([module, body?.session_id, body?.message]);
       let requestId = pendingQuestions.get(questionKey);
       let durable = false;
-      const reserved = activeQuestions.get(key);
-      if (reserved) {
+      const recovering = requestId || activeQuestions.get(key);
+      if (recovering) {
         // A new tab can recover a queued/answered reservation only when the
-        // user explicitly submits that exact question. Never bill an unknown.
+        // user explicitly submits that exact question. A lost completed reply
+        // keeps its pending ID even after the server cleared its reservation.
         const revision = sessionRevision;
-        const stored = await gateway(`/api/requests/${reserved}`);
+        const stored = await gateway(`/api/requests/${recovering}`);
         if (!stored.ok && stored.status !== 404) return stored;
         // Reservations precede initial request persistence. An interrupted
         // queue write has no request/generation yet; retain the reserved ID.
         if (stored.status === 404) {
           requireConnection(revision);
-          requestId = reserved;
+          requestId = recovering;
           pendingQuestions.set(questionKey, requestId);
         } else {
           const request = await stored.json();
           requireConnection(revision);
-          if (request.id !== reserved || request.module !== module || request.session_id !== body?.session_id
+          if (request.id !== recovering || request.module !== module || request.session_id !== body?.session_id
               || request.resource_id !== resource) throw new Error('已有请求与所选对话不一致，问题已保留。');
           if (request.message !== body?.message) return json({ detail: '这段对话还有未完成的问题，新问题已保留。' }, 409);
-          requestId = reserved;
+          requestId = recovering;
           pendingQuestions.set(questionKey, requestId);
           if (['RUNNING', 'UNKNOWN'].includes(request.status) || (request.status === 'FAILED' && !request.failure_code)) {
             return json({ detail: '该请求结果尚未核实。问题已保留，不会自动再次计费。' }, 409);
