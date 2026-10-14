@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "kind": "PUBLIC_ALLOWLIST_ONLY",
   "repository": "rujiewu/SuperIntelligence",
-  "source_commit": "674e50342017425e9855a8bd51dedc5d49b030f3",
+  "source_commit": "c2e8fba96e42496da299acc2204caa74e35478bb",
   "base": "/reading-workspace",
   "modules": {
     "reading": 11,
