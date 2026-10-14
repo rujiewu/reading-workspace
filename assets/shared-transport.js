@@ -384,8 +384,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
       const key = `annotations:${module}:${resource}`;
       if (method === 'GET') return capture(await gateway(url.pathname + url.search), key);
-      if (method !== 'PUT') return json({ detail: '未知笔记操作。' }, 405);
-      return capture(await gateway('/api/annotations', 'PUT', {
+      if (!['PUT', 'DELETE'].includes(method)) return json({ detail: '未知笔记操作。' }, 405);
+      return capture(await gateway('/api/annotations', method, {
         ...body, module, resource_id: resource, expected_sha: expectedSHA(key),
       }), key);
     }

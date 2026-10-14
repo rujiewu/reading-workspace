@@ -79,11 +79,15 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
     const node = document.createElement(tag); node.textContent = text; node.className = className; return node;
   };
   const isDirty = () => Boolean(working && input.value !== working.baseline);
+  const closeEditor = () => { dialog.hidden = true; list.hidden = false; };
+  const openEditor = () => { dialog.hidden = false; list.hidden = true;
+    window.dispatchEvent(new CustomEvent('hub-annotation-open')); };
   function controls() {
     const disabled = !connected() || !ready || saving;
     add.disabled = disabled; save.disabled = disabled || needsMerge;
     reload.disabled = !connected() || saving;
     selectButton.hidden = disabled || !selected;
+    list.querySelectorAll('button').forEach(button => { button.disabled = disabled; });
   }
   function highlights() {
     if (!CSS.highlights || typeof Highlight !== 'function') return;
@@ -95,11 +99,13 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
     if (!entries.length) list.append(make('p', '还没有学习笔记。可以在正文选中文字，记下自己的想法。', 'annotation-empty'));
     for (const entry of entries) {
       const card = make('article', '', 'reading-note');
-      if (entry.anchor) card.append(make('blockquote', entry.anchor.quote));
-      card.append(make('p', entry.comment, 'reading-note-comment'));
-      const actions = make('div', '', 'reading-note-actions');
+      const heading = make('div', '', 'reading-note-heading');
+      const remove = make('button', '删除', 'reading-note-delete'); remove.type = 'button';
+      remove.setAttribute('aria-label', '删除这条笔记');
+      remove.addEventListener('click', () => removeEntry(entry)); heading.append(remove); card.append(heading);
       if (entry.anchor) {
-        const jump = make('button', '回到原文'); jump.type = 'button';
+        const jump = make('button', entry.anchor.quote, 'reading-note-quote'); jump.type = 'button';
+        jump.title = '回到原文'; jump.setAttribute('aria-label', '回到这条笔记对应的原文');
         jump.addEventListener('click', () => {
           const found = window.HUB_TEXT_ANCHOR.resolve(roots, entry.anchor);
           if (!found) { notify('正文已变化，暂时无法唯一定位；笔记与原摘录仍保留。'); return; }
@@ -107,11 +113,11 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
           found.startContainer.parentElement.scrollIntoView({ block: 'center' });
           if (entry.anchor.source_sha256 !== sourceSHA) notify('这条笔记来自较早版本，已按摘录定位，请核对上下文。');
         });
-        actions.append(jump);
+        card.append(jump);
       }
-      const edit = make('button', '修改笔记'); edit.type = 'button';
-      edit.addEventListener('click', () => open(entry)); actions.append(edit);
-      card.append(actions); list.append(card);
+      const edit = make('button', entry.comment, 'reading-note-body'); edit.type = 'button';
+      edit.title = '编辑笔记'; edit.setAttribute('aria-label', '编辑这条笔记');
+      edit.addEventListener('click', () => open(entry)); card.append(edit); list.append(card);
     }
     highlights();
   }
@@ -129,11 +135,12 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
   }
   function open(entry = null, anchor = null) {
     if (!ready || !connected() || saving) return;
+    if (isDirty() && !window.confirm('笔记尚未保存，放弃修改并编辑另一条笔记吗？')) return;
     working = { id: entry?.id || crypto.randomUUID().replaceAll('-', ''), anchor: entry?.anchor || anchor,
       revision: entry?.revision || null, baseline: entry?.comment || '', material };
     input.value = working.baseline; quote.textContent = working.anchor?.quote || '整篇资料的笔记';
     needsMerge = false; get('merge-reading-note').hidden = true; get('annotation-latest').textContent = '';
-    error.textContent = ''; reload.hidden = true; controls(); dialog.showModal(); input.focus();
+    error.textContent = ''; reload.hidden = true; controls(); openEditor(); input.focus();
   }
   async function submit(event) {
     event.preventDefault();
@@ -151,7 +158,7 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
         const saved = entries.find(entry => entry.id === draft.id);
         working.baseline = draft.comment; working.revision = saved?.revision || draft.revision;
         error.textContent = '刚才的版本已保存，新修改仍在输入框。';
-      } else { dialog.close(); working = null; notify('学习笔记已保存'); }
+      } else { closeEditor(); working = null; notify('学习笔记已保存'); }
     } catch (failure) {
       if (material === draft.material) {
         error.textContent = `${failure.message || '保存未完成。'} 草稿已保留。`;
@@ -162,13 +169,32 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
   function selectionChanged() {
     clearTimeout(timer);
     timer = setTimeout(() => {
-      selected = connected() && ready && sourceSHA.length === 64 && !dialog.open ? window.HUB_TEXT_ANCHOR.capture(roots) : null;
+      selected = connected() && ready && sourceSHA.length === 64 && dialog.hidden ? window.HUB_TEXT_ANCHOR.capture(roots) : null;
       if (selected) {
         selectButton.style.left = Math.max(12, Math.min(innerWidth - 110, selected.rectangle.left)) + 'px';
         selectButton.style.top = Math.max(12, Math.min(innerHeight - 52, selected.rectangle.bottom + 8)) + 'px';
       }
       controls();
     }, 80);
+  }
+  async function removeEntry(entry) {
+    if (saving || !ready || !connected() || !window.confirm('删除这条笔记？')) return;
+    const current = material, ticket = sequence;
+    saving = true; controls(); status.textContent = '正在删除…';
+    try {
+      const data = await api('/api/annotations', { method: 'DELETE', body: { module: current.module,
+        resource_id: current.id, id: entry.id, expected_sha: recordSHA, expected_revision: entry.revision } });
+      if (ticket !== sequence || material !== current || !connected()) return;
+      if (!Array.isArray(data.entries) || !Object.prototype.hasOwnProperty.call(data, 'sha')) throw new Error('未得到完整的删除结果。');
+      entries = data.entries; recordSHA = data.sha;
+      if (working?.id === entry.id) { closeEditor(); working = null; }
+      render(); status.textContent = entries.length ? `${entries.length} 条笔记` : ''; notify('笔记已删除');
+    } catch (failure) {
+      if (ticket === sequence && material === current) {
+        ready = false; status.textContent = `${failure.message || '删除未完成。'} 请重新打开笔记栏核对，草稿仍保留。`;
+        if (working) { error.textContent = status.textContent; reload.hidden = false; }
+      }
+    } finally { saving = false; controls(); }
   }
   add.addEventListener('click', () => open());
   selectButton.addEventListener('pointerdown', event => event.preventDefault());
@@ -180,16 +206,20 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
   get('reading-note-form').addEventListener('submit', submit);
   function cancel(event) {
     if (saving || (isDirty() && !window.confirm('笔记尚未保存，放弃这次修改吗？'))) { event?.preventDefault(); return; }
-    dialog.close(); working = null;
+    closeEditor(); working = null;
   }
   get('cancel-reading-note').addEventListener('click', cancel);
   dialog.addEventListener('cancel', cancel);
   reload.addEventListener('click', async () => {
     const draft = working, text = input.value;
     await load();
+    if (!draft) return;
     if (!ready || working !== draft) return;
     const latest = entries.find(entry => entry.id === draft.id);
-    if (latest && latest.revision !== draft.revision) {
+    if (!latest && draft.revision) {
+      needsMerge = true; error.textContent = '这条笔记已在别处删除。草稿仍保留，可复制后新建一条笔记。';
+      get('merge-reading-note').hidden = true; save.disabled = true;
+    } else if (latest && latest.revision !== draft.revision) {
       needsMerge = true;
       error.textContent = '这条笔记在别处已有新版本。请先核对下方内容，再决定合并；你的草稿仍保留。';
       get('annotation-latest').textContent = latest.comment;
@@ -212,14 +242,15 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
   controls();
   return Object.freeze({
     isDirty, isSaving: () => saving,
+    async refresh() { if (material && connected() && !saving && !working) await load(); },
     mayLeave() {
       if (saving) { notify('笔记正在保存，请稍后再切换。'); return false; }
       return !isDirty() || window.confirm('笔记尚未保存，放弃修改并切换资料吗？');
     },
     pause() { sequence++; ready = false; selected = null; selectButton.hidden = true; panel.hidden = true;
-      dialog.close(); CSS.highlights?.delete('hub-reading-note'); controls(); },
+      closeEditor(); CSS.highlights?.delete('hub-reading-note'); controls(); },
     clear() { sequence++; ready = false; entries = []; material = null; working = null;
-      selected = null; dialog.close(); list.replaceChildren(); CSS.highlights?.delete('hub-reading-note'); controls(); },
+      selected = null; closeEditor(); list.replaceChildren(); CSS.highlights?.delete('hub-reading-note'); controls(); },
     async setMaterial(next, surfaces, digest) {
       const previous = material;
       material = next; roots = surfaces.filter(Boolean); sourceSHA = digest; entries = [];
@@ -232,7 +263,7 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
       await load();
       if (draft && ready && material === next) {
         draft.material = next; working = draft; quote.textContent = draft.anchor?.quote || '整篇资料的笔记';
-        dialog.showModal(); error.textContent = '草稿已保留，请核对后保存。';
+        openEditor(); error.textContent = '草稿已保留，请核对后保存。';
       }
     },
   });

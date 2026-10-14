@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "kind": "PUBLIC_ALLOWLIST_ONLY",
-  "repository": "rujiewu/ReadingAgent",
-  "source_commit": "13959102c8cae5f72f9767ced8d91cdd16beb55d",
+  "repository": "rujiewu/SuperIntelligence",
+  "source_commit": "674e50342017425e9855a8bd51dedc5d49b030f3",
   "base": "/reading-workspace",
   "modules": {
     "reading": 11,

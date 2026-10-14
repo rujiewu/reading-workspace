@@ -229,7 +229,7 @@ if (window.HUB_GITHUB_CONFIG && !window.HUB_SHARED_CONFIG && window.HUB_GITHUB_C
     document.querySelector('.login-copy').textContent = '连接你的 GitHub 账号，读取并同步私有学习记录。令牌只保留在当前标签页。';
     const help = document.createElement('p');
     help.className = 'login-copy';
-    help.append('首次连接：创建限期令牌，只选择 ReadingAgent 仓库，授权 Contents 和 Actions 读写。');
+    help.append('首次连接：创建限期令牌，只选择 SuperIntelligence 仓库，授权 Contents 和 Actions 读写。');
     const link = document.createElement('a');
     const url = new URL('https://github.com/settings/personal-access-tokens/new');
     url.search = new URLSearchParams({ name: 'Personal learning workspace', target_name: window.HUB_GITHUB_CONFIG.owner,

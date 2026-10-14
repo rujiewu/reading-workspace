@@ -91,6 +91,7 @@
       "focus-toggle", "resume-status",
       "record-status", "answer-tools", "resource-content", "content-filter",
       "discussion-toggle", "discussion-close",
+      "notes-toggle", "notes-close", "notes-panel",
     ].forEach((id) => {
       elements[id] = document.getElementById(id);
     });
@@ -105,7 +106,7 @@
     const choices = window.HUB_STUDY.catalogChoices(state.module);
     elements["resource-content"].replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
     elements["content-filter"].hidden = choices.length < 2;
-    document.title = `${config.title} · 知识工作台`;
+    document.title = `${config.title} · SuperIntelligence`;
 
     document.querySelectorAll("[data-module]").forEach((link) => {
       const active = link.dataset.module === state.module;
@@ -148,6 +149,10 @@
   }
 
   function bindEvents() {
+    window.addEventListener('hub-annotation-open', () => {
+      setNotes(true);
+      if (!window.matchMedia("(min-width: 1181px)").matches) setPane('notes');
+    });
     window.addEventListener('hub-annotation-jump', () => { setDetailView('text'); setPane('read'); });
     document.addEventListener("pointerdown", () => { document.documentElement.dataset.input = "pointer"; }, { capture: true });
     document.addEventListener("keydown", event => {
@@ -160,6 +165,14 @@
     elements["theme-toggle"].addEventListener("click", toggleTheme);
     elements["discussion-toggle"].addEventListener("click", () => {
       setDiscussion(document.documentElement.dataset.discussion !== "true");
+    });
+    elements["notes-toggle"].addEventListener("click", () => {
+      setNotes(document.documentElement.dataset.notes !== "true");
+    });
+    elements["notes-close"].addEventListener("click", () => {
+      setNotes(false);
+      if (window.matchMedia("(min-width: 1181px)").matches) elements["notes-toggle"].focus();
+      else document.querySelector('button[data-pane="read"]').focus();
     });
     elements["discussion-close"].addEventListener("click", () => {
       setDiscussion(false);
@@ -386,7 +399,10 @@
     document.querySelector(".chat-panel").hidden = enabled;
     document.querySelector('button[data-pane="chat"]').hidden = enabled;
     elements["discussion-toggle"].hidden = enabled;
-    if (enabled) setDiscussion(false);
+    elements["notes-toggle"].hidden = enabled;
+    elements["notes-panel"].hidden = enabled;
+    document.querySelector('button[data-pane="notes"]').hidden = enabled;
+    if (enabled) { setDiscussion(false); setNotes(false); }
     elements["model-meta"].hidden = enabled;
     if (window.HUB_REMOTE?.kind === "shared") {
       document.querySelector(".private-badge").textContent = enabled ? "记录未连接" : "共享保存";
@@ -577,6 +593,8 @@
     const canRefreshNote = state.noteReady && !state.noteComposing && !noteIsDirty();
     try {
       await refreshSessions();
+      if (!current()) return;
+      await readingNotes?.refresh();
       if (!current()) return;
       if (canRefreshNote && resourceId && noteRevision === state.noteEditRevision && !noteIsDirty()) {
         const record = await api(`/api/notes?module=${encodeURIComponent(state.module)}&resource_id=${encodeURIComponent(resourceId)}`,
@@ -1077,7 +1095,7 @@
   }
 
   function setFocus(enabled, persist = true) {
-    if (enabled) setDiscussion(false);
+    if (enabled) { setDiscussion(false); setNotes(false); }
     const target = state.detailView === "text" ? readingTarget(elements["study-section"].value) : null;
     const before = target?.getBoundingClientRect().top;
     document.documentElement.dataset.focus = String(Boolean(enabled));
@@ -1320,6 +1338,7 @@
     const target = state.detailView === "text" ? readingTarget(elements["study-section"].value) : null;
     const before = target?.getBoundingClientRect().top;
     if (enabled && document.documentElement.dataset.focus === "true") setFocus(false);
+    if (enabled) setNotes(false);
     document.documentElement.dataset.discussion = String(enabled);
     elements["discussion-toggle"].setAttribute("aria-expanded", String(enabled));
     if (!enabled && document.documentElement.dataset.pane === "chat") setPane("read");
@@ -1330,14 +1349,33 @@
   }
 
   function setPane(pane) {
-    if (state.readOnly && pane === "chat") return;
+    if (state.readOnly && ['chat', 'notes'].includes(pane)) return;
     if (pane === "chat") setDiscussion(true);
+    if (pane === "notes") setNotes(true);
     if (pane !== "read" && window.matchMedia("(min-width: 1181px)").matches
         && document.documentElement.dataset.focus === "true") setFocus(false);
     document.documentElement.dataset.pane = pane;
     document.querySelectorAll("button[data-pane]").forEach(button => {
       button.setAttribute("aria-pressed", String(button.dataset.pane === pane));
     });
+  }
+
+  function setNotes(enabled) {
+    enabled = Boolean(enabled) && !state.readOnly;
+    const target = state.detailView === "text" ? readingTarget(elements["study-section"].value) : null;
+    const before = target?.getBoundingClientRect().top;
+    if (enabled) {
+      if (document.documentElement.dataset.focus === "true") setFocus(false);
+      setDiscussion(false);
+    }
+    document.documentElement.dataset.notes = String(enabled);
+    elements["notes-toggle"].setAttribute("aria-expanded", String(enabled));
+    if (!enabled && document.documentElement.dataset.pane === "notes") setPane("read");
+    if (enabled) readingNotes?.refresh();
+    if (target && Number.isFinite(before)) {
+      document.getElementById("resource-detail").scrollTop += target.getBoundingClientRect().top - before;
+    }
+    studyNavigation?.refresh();
   }
 
   function renderLinks(links) {
