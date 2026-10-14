@@ -2,8 +2,9 @@
   "schema_version": "1.0.0",
   "kind": "PUBLIC_ALLOWLIST_ONLY",
   "repository": "rujiewu/SuperIntelligence",
-  "source_commit": "8b48ccfbd0c10b9954bb0b7aff52f49186294b80",
-  "base": "/reading-workspace",
+  "public_repository": "rujiewu/superintelligence-workspace",
+  "source_commit": "81b5328242c7a92f24b509946a5199fb37d28f97",
+  "base": "/superintelligence-workspace",
   "modules": {
     "reading": 11,
     "learning": 63,
@@ -24,5 +25,5 @@
   "snapshot_exported": false,
   "investment_personal_playbooks_exported": false,
   "transport": "shared",
-  "api_base": "https://reading-workspace-api-rujiewuac-8230.vercel.app"
+  "api_base": "https://superintelligence-api-rujiewuac-8230.vercel.app"
 }
