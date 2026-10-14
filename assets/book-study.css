@@ -12,6 +12,8 @@
   color: var(--ink);
 }
 .book-study-content { container-type: inline-size; overflow-wrap: anywhere; }
+:host-context([data-input="pointer"]) [tabindex="-1"]:focus-visible { outline: none; }
+::highlight(hub-reading-note) { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 [id] { scroll-margin-top: 126px; }
 .content-section { padding: 26px 0; border: 0; }
 .content-heading { grid-template-columns: 1fr; margin-bottom: 20px; }

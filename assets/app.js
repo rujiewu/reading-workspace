@@ -42,6 +42,7 @@
   let toastTimer;
   let studyNavigation;
   let workspaceState;
+  let readingNotes;
   let noteSaveTimer;
   const NOTE_SAVE_DELAY = 2500;
 
@@ -52,6 +53,9 @@
   function start() {
     collectElements();
     workspaceState = window.HUB_WORKSPACE_STATE(() => window.localStorage);
+    readingNotes = window.HUB_ANNOTATIONS?.({ api, notify,
+      connected: () => !state.readOnly && !elements['app-shell'].hidden
+        && (window.HUB_REMOTE?.kind !== 'shared' || window.HUB_REMOTE.hasSession()) });
     studyNavigation = window.HUB_STUDY_NAVIGATION(document.getElementById("resource-detail"),
       elements["study-section"], document.querySelector(".detail-navigation"), document.getElementById("study-position"),
       value => {
@@ -144,6 +148,13 @@
   }
 
   function bindEvents() {
+    window.addEventListener('hub-annotation-jump', () => { setDetailView('text'); setPane('read'); });
+    document.addEventListener("pointerdown", () => { document.documentElement.dataset.input = "pointer"; }, { capture: true });
+    document.addEventListener("keydown", event => {
+      if (["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+        document.documentElement.dataset.input = "keyboard";
+      }
+    }, { capture: true });
     elements["login-form"].addEventListener("submit", login);
     elements.logout.addEventListener("click", () => state.readOnly ? showLogin() : logout());
     elements["theme-toggle"].addEventListener("click", toggleTheme);
@@ -214,7 +225,7 @@
       noteChanged();
     });
     window.addEventListener("beforeunload", event => {
-      if (!noteIsDirty() && !state.savingNote) return;
+      if (!noteIsDirty() && !state.savingNote && !readingNotes?.isDirty() && !readingNotes?.isSaving()) return;
       event.preventDefault();
       event.returnValue = "";
     });
@@ -251,12 +262,19 @@
 
   async function checkAuthentication() {
     const token = ++state.authRequestToken;
-    if (window.HUB_REMOTE?.kind === "shared") showLogin();
+    if (window.HUB_REMOTE?.kind === "shared") {
+      if (window.HUB_REMOTE.hasSession?.()) {
+        showApp();
+        elements["record-status"].textContent = "正在连接记录…";
+        disableComposer(true);
+      } else showLogin();
+    }
     try {
       const me = await api("/api/me", { allowUnauthenticated: true });
       if (token !== state.authRequestToken || state.readOnly) return;
       elements.logout.hidden = !me.password_required;
       if (me && me.authenticated) {
+        elements["record-status"].textContent = "学习空间";
         showApp();
         await loadWorkspace();
       } else {
@@ -356,6 +374,7 @@
   function setReadOnly(enabled) {
     pauseNoteSaving();
     state.readOnly = enabled;
+    if (enabled) readingNotes?.clear();
     state.modeRevision += 1;
     window.HUB_REMOTE?.setReadOnly?.(enabled);
     document.documentElement.dataset.readOnly = String(enabled);
@@ -462,6 +481,7 @@
   }
 
   function showLogin(message) {
+    readingNotes?.pause();
     pauseNoteSaving();
     setNoteControls();
     elements["boot-view"].hidden = true;
@@ -775,11 +795,12 @@
     if (!item) return false;
     if (state.selectedId === item.id && !options?.forceReload) return true;
     const draft = options?.draft?.resourceId === item.id ? options.draft : null;
-    if (!draft && !mayLeaveNote()) return false;
+    if (!draft && !mayLeaveNote({ retainReadingNotes: state.selectedId === item.id && options?.forceReload })) return false;
     const operation = ++state.selectionRequestToken;
     const mode = state.modeRevision;
 
     const changed = state.selectedId !== item.id;
+    readingNotes?.pause();
     state.positionReady = false;
     elements["resume-status"].hidden = true;
     if (!(options && options.fromSession)) state.sessionLoadToken += 1;
@@ -801,6 +822,17 @@
     }
     await Promise.all([loadNote(item.id, { draft }), state.module === "reading" && item.kind === "book" ? loadBookStudy(item) : Promise.resolve()]);
     if (state.selectedId !== item.id || operation !== state.selectionRequestToken || mode !== state.modeRevision) return false;
+    if (readingNotes) {
+      let digest = state.bookStudy?.input_hash || '';
+      if (!digest && crypto.subtle) {
+        digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(item.body || '')))]
+          .map(byte => byte.toString(16).padStart(2, '0')).join('');
+      }
+      if (state.selectedId !== item.id || operation !== state.selectionRequestToken || mode !== state.modeRevision) return false;
+      const book = document.getElementById('book-study')?.shadowRoot;
+      readingNotes.setMaterial({ module: state.module, id: item.id },
+        [elements['detail-body'], book], digest).catch(() => {});
+    }
     if (!state.readOnly) workspaceState.remember(state.module, item.id);
     restoreReadingPosition(item, !options?.position && options?.resumeSection !== false);
     restoreCurrentPosition(options?.position);
@@ -1095,6 +1127,7 @@
     body.dataset.kind = item?.kind || "";
     state.studySections.forEach((section, index) => {
       const part = make("section", "study-part");
+      part.id = `study-part-${index}`;
       const heading = make("h3", "study-heading", section.title);
       if (index === 0 && section.title === item?.title) heading.classList.add("sr-only");
       heading.id = `study-heading-${index}`;
@@ -1238,7 +1271,8 @@
     scheduleNoteSave();
   }
 
-  function mayLeaveNote() {
+  function mayLeaveNote(options = {}) {
+    if (readingNotes && !options.retainReadingNotes && !readingNotes.mayLeave()) return false;
     if (state.savingNote) {
       notify("回答正在保存，请稍等再切换资料。");
       return false;
@@ -1640,7 +1674,7 @@
     const wrapper = make("div", `message ${role}${isError ? " error" : ""}`);
     wrapper.append(make("span", "message-label", role === "user" ? "你" : "知识助手"));
     const bubble = make("div", "message-bubble");
-    if (role === "assistant") renderStructuredText(bubble, String(message.content || ""));
+    if (role === "assistant") renderStructuredText(bubble, assistantDisplayText(String(message.content || "")));
     else bubble.textContent = String(message.content || "");
     wrapper.append(bubble);
     elements["chat-messages"].append(wrapper);
@@ -1772,6 +1806,53 @@
     if (className) node.className = className;
     if (text !== undefined) node.textContent = text;
     return node;
+  }
+
+  function assistantDisplayText(source) {
+    // Repair lost block boundaries for display only. Stored replies and source
+    // materials retain their exact bytes; code and inline tokens stay literal.
+    const lines = source.replace(/\r\n?/g, "\n").split("\n");
+    const output = [];
+    let fence = null;
+    let table = false;
+    for (let index = 0; index < lines.length; index += 1) {
+      let line = lines[index];
+      if (fence) {
+        output.push(line);
+        if (new RegExp(`^\\s*${fence[0]}{${fence.length},}\\s*$`).test(line)) fence = null;
+        continue;
+      }
+      if (table && !line.trim().startsWith("|")) {
+        output.push("");
+        table = false;
+      }
+      // A glued fence must follow sentence punctuation and end with a language
+      // identifier. Never split an inline fenced literal or a code line.
+      line = line.replace(/([。！？；：])(`{3,}|~{3,})([a-zA-Z0-9_-]*)\s*$/, "$1\n\n$2$3");
+      const tokens = /(`+)[^`]*?\1|!?\[[^\]]*\]\([^)]*\)|https?:\/\/\S+/g;
+      let position = 0;
+      let normalized = "";
+      const boundaries = text => text.replace(/([。！？；：])(?=(?:#{1,6}\s+|[-*+]\s+|\d{1,2}[.)]\s+|>\s+))/g, "$1\n");
+      for (const token of line.matchAll(tokens)) {
+        normalized += boundaries(line.slice(position, token.index)) + token[0];
+        position = token.index + token[0].length;
+      }
+      normalized += boundaries(line.slice(position));
+      // A valid table separator identifies a header, even when preceding prose
+      // lost its newline. Other vertical bars remain ordinary text.
+      if (/^\s*\|?\s*:?-{3,}:?\s*\|/.test(lines[index + 1] || "")) {
+        const pipe = normalized.indexOf("|");
+        output.push("");
+        if (pipe > 0 && normalized.slice(0, pipe).trim()) {
+          normalized = normalized.slice(0, pipe) + "\n\n" + normalized.slice(pipe);
+        }
+        table = normalized.split("\n").at(-1).trim().startsWith("|");
+      }
+      output.push(normalized);
+      const opening = normalized.split("\n").at(-1).trim().match(/^(`{3,}|~{3,})[a-zA-Z0-9_-]*\s*$/);
+      if (opening) fence = opening[1];
+    }
+    return output.join("\n");
   }
 
   function renderStructuredText(container, source) {

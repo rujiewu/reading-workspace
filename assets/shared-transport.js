@@ -31,6 +31,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       && Date.parse(value.expires_at) > clock();
   }
 
+  function hasSession() { return !readOnly && validSession(session); }
+
   function forgetSession() {
     sessionRevision += 1;
     session = null;
@@ -377,6 +379,16 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     }
     if (readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
     if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问名称。' }, 401); }
+    if (url.pathname === '/api/annotations') {
+      const resource = url.searchParams.get('resource_id') || body?.resource_id;
+      if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
+      const key = `annotations:${module}:${resource}`;
+      if (method === 'GET') return capture(await gateway(url.pathname + url.search), key);
+      if (method !== 'PUT') return json({ detail: '未知笔记操作。' }, 405);
+      return capture(await gateway('/api/annotations', 'PUT', {
+        ...body, module, resource_id: resource, expected_sha: expectedSHA(key),
+      }), key);
+    }
     if (url.pathname === '/api/notes') {
       const resource = url.searchParams.get('resource_id') || body?.resource_id;
       if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
@@ -489,7 +501,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     cache.set(noteKey(module, resource), record.sha);
   }
 
-  return Object.freeze({ kind: 'shared', setReadOnly, restoreNavigation, flushNavigation, rememberNavigation, acceptNoteSnapshot,
+  return Object.freeze({ kind: 'shared', hasSession, setReadOnly, restoreNavigation, flushNavigation, rememberNavigation, acceptNoteSnapshot,
     request: handle });
 };
 

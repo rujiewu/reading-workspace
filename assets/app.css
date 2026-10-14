@@ -87,6 +87,13 @@ summary,
   outline: 2px solid var(--accent);
 }
 
+[data-input="pointer"] #text-section:focus-visible,
+[data-input="pointer"] #exercise-panel:focus-visible,
+[data-input="pointer"] #main-content:focus-visible,
+[data-input="pointer"] #text-section [tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
 button,
 summary {
   cursor: pointer;
@@ -1003,6 +1010,7 @@ p {
 }
 
 .message-bubble {
+  min-width: 0;
   max-width: 88%;
   padding: 10px 12px;
   color: var(--body-ink);
@@ -1012,6 +1020,17 @@ p {
   line-height: 1.85;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.message-bubble pre {
+  max-width: 100%;
+  margin: 1em 0;
+  padding: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: 12px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre;
 }
 
 .message.user .message-bubble {

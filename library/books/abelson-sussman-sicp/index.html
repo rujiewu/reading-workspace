@@ -26,7 +26,7 @@
       <a class="toc-back" href="../../index.html">← 返回知识库</a>
       <div class="toc-title">本页目录</div>
       <nav>
-        <a href="#takeaway">核心提要</a>
+<a href="#foundation-0">基础讲解</a>        <a href="#takeaway">核心提要</a>
         <a href="#reading-depths">分层阅读</a>
         <a href="#argument-map">论证地图</a>
 <a href="#visualizations">解释图</a><a href="#question-and-method">先别问 Scheme 语法，先问模型何时失效</a><a href="#procedures-and-data">把共同结构从具体程序里提出来</a><a href="#state-and-time">得到状态，也承担顺序</a><a href="#languages-as-tools">把求值器放到桌面上</a><a href="#from-language-to-machine">沿着控制与存储下行</a><a href="#course-and-criticism">经典地位不能替代教学证据</a><a href="#living-lineage">仍在生长的思想，不是冻结的环境</a><a href="#what-it-does-not-cover">把它放回完整学习路径</a><a href="#concepts">关键概念</a><a href="#connections">知识连接</a>        <a href="#sources">来源与证据</a>
@@ -50,6 +50,23 @@
       </section>
 
 
+      <section id="foundation-0" class="content-section foundation-section">
+        <h2>程序是规则，过程是规则运行时发生的事</h2>
+<p class="foundation-basis">入门讲解 · 编辑解释与教学例子。</p><p>SICP 从计算过程讲起。程序写下一套规则；计算机执行规则时，才产生随时间展开的计算过程。纸上的菜谱与实际做菜有类似区别，不过这只是入门类比：计算过程依照语言和机器的具体规则推进。书中用 Scheme 表达程序，括号不是装饰，它明确表示哪些表达式一起构成一次运算。</p><p>例如 (+ 2 3) 表示把 2 与 3 交给加法操作，结果是 5；(* (+ 2 3) 4) 先得到内层的 5，再乘 4，结果为 20。这是这里编写的演示，不是原书逐字摘录。先能跟踪这些小表达式，再讨论大程序的组织，抽象才不会悬空。</p><p class="foundation-basis">解释依据：<a href="#claim-computational-process">作者把程序看作一套精确规则，它指导一个抽象机器中的计算过程逐步演化；程序…</a> · <a href="#claim-language-and-abstraction">一种足够强的编程语言至少要提供基本表达式、组合手段和抽象手段；抽象让人能…</a></p>      </section>
+      <section id="foundation-source-passage" class="content-section foundation-section">
+        <h2>书中短摘</h2>
+        <figure class="foundation-excerpt">
+          <blockquote>Computational processes are abstract beings that inhabit computers.</blockquote>
+          <p>参考译文：计算过程是栖居在计算机中的抽象存在。</p>
+          <figcaption><a href="https://ocw.mit.edu/courses/6-001-structure-and-interpretation-of-computer-programs-spring-2005/c975ee8b62d01f5edb5ed01cd99e08d1_SICP_fulltext.zip">Structure and Interpretation of Computer Programs, second edition, full HTML archive</a> · Second edition, Chapter 1 opening; book/book-Z-H-9.html#%_chap_1。依据官方课程归档内第二版 HTML 的开篇，核对的表达文件为 book-Z-H-9.html；仅引用这一句，不缓存或再发布全书。</figcaption>
+        </figure>
+      </section>
+      <section id="foundation-1" class="content-section foundation-section">
+        <h2>给一个反复出现的计算起名字</h2>
+<p>假设经常要算一个数的平方，可以定义 (define (square x) (* x x))，再调用 (square 3)。x 是这次调用的形式参数，调用时对应 3，因此结果为 9。命名让调用者使用 square，而无需每次重复乘法的表达式。</p><p>进一步，(square (square 2)) 的内层先得到 4，外层再得到 16。这几个数值是教学算例。SICP 的重点还包括：程序写得很短，运行过程却可能不同；递归形式与迭代过程需要逐步展开后再判断。不能只数函数名出现几次，就推断空间或时间成本。</p><p class="foundation-basis">解释依据：<a href="#claim-procedure-process-distinction">过程定义只描述局部演化规则，真正执行时却可能形成不同形状的计算过程；递归…</a> · <a href="#claim-higher-order-procedures">当过程可以作为参数和返回值时，共同的计算模式便能从具体公式中抽离出来；求…</a></p>      </section>
+      <section id="foundation-2" class="content-section foundation-section">
+        <h2>从组合计算走到数据、状态与解释器</h2>
+<p>第一章围绕过程展开；第二章把问题延伸到数据怎样表示、怎样把使用者与表示细节隔开。第三章引入赋值和状态：同样的表达式，可能因对象先前发生的变化而得到不同结果，简单替换模型便不够用了。第四章研究解释器怎样赋予表达式意义，第五章继续走到寄存器机器与编译。</p><p>这条路径把“会写一段代码”推进到“能解释代码为何这样运行”。后面的环境模型、并发和语言实现，建立在这些小操作之上。现代工具的语法可以不同，但不能省略运行模型；书和完整课程也仍有覆盖差别。</p><p class="foundation-basis">解释依据：<a href="#claim-data-abstraction-barrier">数据抽象要求使用者只通过构造器和选择器接触数据；表示层可以改变，只要这个…</a> · <a href="#claim-state-model">赋值让程序能用带局部历史的对象模拟变化世界：同一个账户过程记住余额，相同…</a> · <a href="#claim-environment-model">环境模型用一连串帧保存名字到值的绑定；过程携带参数、函数体与创建它的环境…</a> · <a href="#claim-eval-apply-kernel">元循环求值器把语言核心压缩到 eval 与 apply 的相互递归：前者…</a> · <a href="#claim-machine-compiler-continuity">第五章把抽象机器拆成数据路径和控制器，再逐步构造模拟器、存储分配、显式控…</a> · <a href="#claim-course-is-more-than-book">MIT 2005 年的 6.001 并不是让学生独自读完教材：课程还用现…</a></p>      </section>
       <section id="takeaway" class="takeaway-band">
         <div class="section-tag">先用 30 秒抓住它</div>
         <blockquote>这本书的核心训练不是记住 Scheme 语法，而是在同一个计算对象上不断换模型：先看表达式怎样展开，再看过程怎样演化、状态怎样改变绑定、语言怎样定义求值，最后看求值器怎样落到寄存器、栈与指令序列。每次换模型，都要说清上一种解释为何不够。  <a class="citation-ref" href="#citation-premise-essence-structure" title="Chapters 1-5, especially Sections 1.2, 2.1, 3.2, 4.1 and 5.5 · 这些章节依次让读者用不同模型解释过程、数据、状态、语言与机器；它们是综合判断的文本前提。" aria-label="前提引文 30，Chapters 1-5, especially Sections 1.2, 2.1, 3.2, 4.1 and 5.5">[前提 30]</a>
