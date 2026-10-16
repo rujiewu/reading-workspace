@@ -7,6 +7,10 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   const modules = new Set(['reading', 'learning', 'trading', 'investment']);
   const base = String(config.base || '').replace(/\/$/, '');
   const apiBase = String(config.apiBase || '').replace(/\/$/, '');
+  const fallbackBase = String(config.apiFallbackOrigin || '').replace(/\/$/, '');
+  if (fallbackBase && fallbackBase !== 'https://reading-workspace-api.zippybox2.chatgpt.site') {
+    throw new Error('备用学习服务地址无效。');
+  }
   const tokenKey = `hub-shared-session:${apiBase || 'unconfigured'}`;
   const cache = new Map();
   const responseVersions = new WeakMap();
@@ -19,6 +23,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   let session = null, sessionRevision = 0, readOnly = false;
   let navigation = null, navigationDirty = false, navigationTimer, navigationRevision = 0;
   let navigationWrite = null;
+  let selectedBase = null, routeSelection = null;
   const identity = value => typeof value === 'string' && /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(value);
   const uuid = () => crypto.randomUUID().replaceAll('-', '');
   const json = (value, status = 200) => new Response(JSON.stringify(value), {
@@ -36,6 +41,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   function forgetSession() {
     sessionRevision += 1;
     session = null;
+    selectedBase = null;
+    routeSelection = null;
     cache.clear();
     sessionResources.clear();
     activeQuestions.clear();
@@ -61,32 +68,67 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     }
   } catch { /* An unavailable store requires login in this tab. */ }
 
-  function gatewayURL(path) {
+  function gatewayURL(path, endpoint = apiBase) {
     if (!apiBase) throw new Error('共享服务尚未配置，可以稍后再试。');
-    const origin = new URL(apiBase);
+    const origin = new URL(endpoint);
     const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
-    if (origin.username || origin.password || origin.search || origin.hash
+    if (origin.username || origin.password || origin.search || origin.hash || !['', '/'].includes(origin.pathname)
         || (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopback))) {
       throw new Error('共享服务地址无效。');
     }
     if (!path.startsWith('/api/')) throw new Error('未知共享操作。');
-    return `${apiBase}${path}`;
+    return `${endpoint}${path}`;
+  }
+
+  async function selectGateway(revision, excluded = null) {
+    if (!fallbackBase) return apiBase;
+    if (selectedBase && selectedBase !== excluded) return selectedBase;
+    if (!routeSelection || excluded) {
+      // Public capability probes contain no bearer, password, records or model request.
+      const pending = Promise.any([...new Set([apiBase, fallbackBase])].filter(value => value !== excluded).map(async endpoint => {
+        const response = await boundedFetch(gatewayURL('/api/release', endpoint), {
+          method: 'GET', credentials: 'omit', cache: 'no-store', redirect: 'error',
+          headers: { Accept: 'application/json' },
+        }, 5000, '连接学习服务超时，请检查网络后重试。', '无法连接学习服务，请检查网络后重试。');
+        const release = await response.json();
+        if (!response.ok || release.packaged !== true || release.chat_packet_validation !== 'sha256-v1'
+            || !/^[a-f0-9]{40}$/.test(release.source_commit || '')
+            || !release.packets_sha256 || !Object.keys(release.packets_sha256).length) {
+          throw new Error('学习服务尚未就绪。');
+        }
+        return endpoint;
+      }));
+      routeSelection = pending;
+    }
+    const pending = routeSelection;
+    try {
+      const endpoint = await pending;
+      if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
+      if (routeSelection === pending) selectedBase = endpoint;
+      return endpoint;
+    } catch (error) {
+      if (error?.name === 'AggregateError') throw new Error('学习服务的连接暂时不可用。公开资料仍可阅读，未保存的内容请保留后重试。');
+      throw error;
+    } finally { if (routeSelection === pending) routeSelection = null; }
   }
 
   async function gateway(path, method = 'GET', body, unauthenticated = false) {
-    const target = gatewayURL(path);
+    gatewayURL(path);
     if (!unauthenticated && readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
     if (!unauthenticated && !validSession(session)) {
       forgetSession();
       return json({ detail: '请重新输入访问名称。' }, 401);
     }
     const revision = sessionRevision;
+    let endpoint = fallbackBase ? await selectGateway(revision) : apiBase;
+    if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
     const timeoutMs = path === '/api/login' ? 12000 : path.startsWith('/api/chat') ? 240000 : 60000;
     const timeoutMessage = path === '/api/login'
       ? '连接验证服务超时，请检查网络后重试。'
       : '连接学习服务超时，请检查网络后重试。';
-    const response = await boundedFetch(target, {
+    const send = origin => boundedFetch(gatewayURL(path, origin), {
       method, credentials: 'omit', cache: 'no-store',
+      redirect: 'error',
       headers: {
         Accept: 'application/json',
         ...(!unauthenticated && session ? { Authorization: `Bearer ${session.token}` } : {}),
@@ -94,6 +136,17 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     }, timeoutMs, timeoutMessage, '无法连接学习服务，请检查网络后重试。');
+    let response;
+    try { response = await send(endpoint); }
+    catch (error) {
+      if (!fallbackBase || !error?.transportFailure || revision !== sessionRevision) throw error;
+      selectedBase = null;
+      // Login is stateless; GET is read-only. Never replay a write or billed POST.
+      if (method !== 'GET' && path !== '/api/login') throw error;
+      endpoint = await selectGateway(revision, endpoint);
+      if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
+      response = await send(endpoint);
+    }
     if (!unauthenticated && revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
     if (response.status === 401 && !unauthenticated) forgetSession();
     responseVersions.set(response, revision);
@@ -123,8 +176,11 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       })()]);
       return response;
     } catch (error) {
-      if (expired) throw new Error(timeoutMessage);
-      if (error instanceof TypeError) throw new Error(networkMessage);
+      if (expired || error instanceof TypeError) {
+        const failure = new Error(expired ? timeoutMessage : networkMessage);
+        failure.transportFailure = true;
+        throw failure;
+      }
       if (error?.name === 'SyntaxError') throw new Error('服务回复传输未完成，请稍后重试当前操作。');
       throw error;
     } finally {
