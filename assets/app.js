@@ -1816,7 +1816,7 @@
       if (!Array.isArray(catalog.models) || !catalog.models.length) throw new Error("讨论模型尚未配置。");
       let preferred = {};
       try { preferred = JSON.parse(localStorage.getItem(`hub-discussion-choice-v2:${state.module}`) || '{}'); } catch { /* Optional preferences only. */ }
-      const previous = elements["discussion-model"].value || preferred.model;
+      const previous = preferred.model;
       state.discussionModels = catalog.models;
       elements["discussion-model"].replaceChildren(...catalog.models.map(item => new Option(item.label, item.id)));
       elements["discussion-model"].value = catalog.models.some(item => item.id === previous) ? previous : catalog.default_model;

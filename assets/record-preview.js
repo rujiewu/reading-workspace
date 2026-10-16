@@ -2,7 +2,7 @@
 window.HUB_RECORD_PREVIEW = (() => {
   function describe(record, fallback = '学习笔记') {
     const value = record?.organization;
-    if (value?.status === 'COMPLETED' && value.model === 'claude-opus-5-5'
+    if (value?.status === 'COMPLETED' && ['gpt-6.1-sol', 'claude-opus-5-5'].includes(value.model)
         && value.reported_model === value.model
         && /^[a-f0-9]{64}$/.test(value.source_sha256 || '')
         && typeof value.title === 'string' && value.title.trim()
