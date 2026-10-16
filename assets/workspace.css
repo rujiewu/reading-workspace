@@ -54,11 +54,14 @@
 .detail-body > h3:first-child { margin-top: 12px; }
 .catalog-filters { padding: 10px 8px 0; }
 .catalog-filters select { width: 100%; padding: 8px; font: inherit; font-size: 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
-.catalog-location { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 12px 8px 0; padding: 10px 2px; color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); }
+.catalog-picker { position: relative; margin: 12px 8px 0; }
+.catalog-location { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0; padding: 10px 2px; color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--line); }
 .catalog-location:hover { color: var(--accent-ink); }
 .catalog-location[aria-expanded="true"] > :last-child { transform: rotate(180deg); }
-.catalog-topics { min-height: 0; overflow: auto; padding: 0 8px 16px; }
-.catalog-topic { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; padding: 13px 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; font: inherit; font-size: 13px; line-height: 1.6; }
+.catalog-topics { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; max-height: min(420px, 50dvh); overflow-y: auto; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 28px rgba(0, 0, 0, .16); animation: catalog-open 130ms ease-out; overscroll-behavior: contain; }
+@keyframes catalog-open { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .catalog-topics { animation: none; } }
+.catalog-topic { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; padding: 10px; border: 0; background: transparent; color: var(--ink); text-align: left; font: inherit; font-size: 13px; line-height: 1.6; }
 .catalog-topic[aria-current="true"], .catalog-topic:hover { background: var(--accent-soft); color: var(--accent-ink); border-radius: 7px; }
 .catalog-topic-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted); }
 .resource-location { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
@@ -269,16 +272,13 @@
   .detail-panel { display: block !important; height: auto; }
 }
 
-/* Keep the subject first; editorial routing is available on demand. */
+/* Direct book orientation; curriculum metadata remains a navigation contract. */
 .detail-placement { display: block; margin: 6px 0 0; font-size: 12px; }
-.detail-placement summary { width: fit-content; cursor: pointer; color: var(--muted); padding: 3px 0; }
-.detail-placement[open] summary { margin-bottom: 6px; }
 .detail-placement > span { display: block; border: 0 !important; padding: 0 !important; }
+.book-entry-question { margin: 10px 0 4px; color: var(--ink); font-size: 15px; line-height: 1.75; }
 .detail-navigation { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 .exercise-panel { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
 .answer-editor > summary { cursor: pointer; color: var(--accent-ink); padding: 10px 0; font-size: 14px; }
-.remember-device { display: flex; align-items: center; gap: 8px; margin: 12px 0; color: var(--muted); font-size: 13px; }
-.remember-device input { width: 16px; height: 16px; accent-color: var(--accent); }
 .discussion-options { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 8px; }
 .discussion-options label { min-width: 0; max-width: 100%; }
 .discussion-options select { max-width: 100%; min-height: 32px; padding: 4px 20px 4px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }

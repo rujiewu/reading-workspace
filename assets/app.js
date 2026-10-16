@@ -93,7 +93,7 @@
       "chat-send", "model-meta", "toast",
       "catalog-location", "catalog-scope", "catalog-topics", "text-section",
       "practice-guide", "insert-worksheet", "discuss-note",
-      "study-section", "remember-device", "remember-device-row",
+      "study-section", "catalog-picker",
       "discussion-options", "discussion-model", "discussion-effort",
       "focus-toggle", "resume-status",
       "record-status", "answer-tools", "resource-content", "content-filter",
@@ -192,16 +192,26 @@
       renderResourceList();
     });
     elements["catalog-location"].addEventListener("click", () => {
-      state.catalogBrowsing = !state.catalogBrowsing;
-      renderResourceList();
-      if (state.catalogBrowsing) elements["catalog-topics"].querySelector('[aria-current="true"]')?.focus();
+      setCatalogPicker(!state.catalogBrowsing);
     });
     elements["catalog-topics"].addEventListener("keydown", event => {
       if (event.key === "Escape") {
-        state.catalogBrowsing = false;
-        renderResourceList();
+        event.preventDefault();
+        setCatalogPicker(false);
         elements["catalog-location"].focus();
+      } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        const buttons = [...elements["catalog-topics"].querySelectorAll("button")];
+        const index = buttons.indexOf(document.activeElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+          : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        if (buttons[next]) { event.preventDefault(); buttons[next].focus(); }
       }
+    });
+    document.addEventListener("pointerdown", event => {
+      if (!elements["catalog-picker"].contains(event.target)) setCatalogPicker(false, false);
+    });
+    elements["catalog-picker"].addEventListener("focusout", event => {
+      if (event.relatedTarget && !elements["catalog-picker"].contains(event.relatedTarget)) setCatalogPicker(false, false);
     });
     elements["resource-content"].addEventListener("change", () => {
       const available = state.items.filter(item => window.HUB_STUDY.catalogMatches(item, state.module, elements["resource-content"].value));
@@ -257,7 +267,6 @@
     elements["discussion-model"].addEventListener("change", () => { configureEfforts(); rememberDiscussionChoice(); });
     elements["discussion-effort"].addEventListener("change", rememberDiscussionChoice);
     elements["chat-form"].addEventListener("submit", sendMessage);
-    elements["remember-device-row"].hidden = window.HUB_REMOTE?.kind !== "shared";
     elements["chat-input"].addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
@@ -335,7 +344,7 @@
       await api("/api/login", {
         method: "POST",
         body: { password, ...(window.HUB_REMOTE?.kind === "shared"
-          ? { remember_device: elements["remember-device"].checked } : {}) },
+          ? { remember_device: true } : {}) },
         allowUnauthenticated: true,
       });
       if (token !== state.authRequestToken) return;
@@ -347,7 +356,7 @@
     } catch (error) {
       if (token !== state.authRequestToken) return;
       elements["login-error"].textContent = error instanceof AuthRequiredError
-        ? "访问密码不正确，请再试一次。"
+        ? "用户名不正确，请再试一次。"
         : error.message || "暂时无法登录，请稍后重试。";
       elements["login-error"].hidden = false;
       elements.password.select();
@@ -637,6 +646,13 @@
     }
   }
 
+  function setCatalogPicker(open, focus = true) {
+    state.catalogBrowsing = open && !elements["catalog-location"].hidden;
+    elements["catalog-location"].setAttribute("aria-expanded", String(state.catalogBrowsing));
+    elements["catalog-topics"].hidden = !state.catalogBrowsing;
+    if (state.catalogBrowsing && focus) elements["catalog-topics"].querySelector('[aria-current="true"]')?.focus();
+  }
+
   function renderResourceList() {
     const query = elements["resource-search"].value.trim();
     const filter = elements["resource-content"].value;
@@ -648,14 +664,12 @@
       groups.get(outline.groupKey).count++;
     });
     if (groups.size < 2) state.catalogBrowsing = false;
-    const browsing = state.catalogBrowsing;
     elements["catalog-location"].hidden = groups.size < 2;
-    elements["catalog-scope"].textContent = browsing ? "选择主题" : query ? "搜索全部材料" : groups.get(state.catalogScope)?.title || "全部材料";
-    elements["catalog-location"].setAttribute("aria-expanded", String(browsing));
-    elements["catalog-topics"].hidden = !browsing;
-    elements["resource-list"].hidden = browsing;
+    elements["catalog-picker"].hidden = groups.size < 2;
+    elements["catalog-scope"].textContent = query ? "搜索全部材料" : groups.get(state.catalogScope)?.title || "全部材料";
+    setCatalogPicker(state.catalogBrowsing, false);
     elements["catalog-topics"].replaceChildren();
-    if (browsing) {
+    if (groups.size > 1) {
       [["", { title: "全部材料", count: candidates.length }], ...groups].forEach(([key, group]) => {
         const button = make("button", "catalog-topic");
         button.type = "button";
@@ -678,7 +692,7 @@
     const list = elements["resource-list"];
     list.replaceChildren();
     list.dataset.content = query ? "all" : filter;
-    elements["resource-count"].textContent = browsing ? `${groups.size} 个主题` : `${visible.length} 项${query ? "匹配" : "材料"}`;
+    elements["resource-count"].textContent = `${visible.length} 项${query ? "匹配" : "材料"}`;
     if (!visible.length) {
       list.append(make("p", "empty-list", query ? "没有匹配的资料，试试书名、作者或关键词。" : "此范围暂无材料，可切换主题或内容类型。"));
       return;
@@ -712,7 +726,7 @@
       fragment.append(button);
     });
     list.append(fragment);
-    if (!query && !browsing) {
+    if (!query) {
       const active = list.querySelector('[aria-selected="true"]');
       if (active) list.scrollTop = Math.max(0, active.offsetTop - list.offsetTop - 36);
       else list.scrollTop = 0;
@@ -991,14 +1005,18 @@
   function renderPlacement(item) {
     const host = elements["detail-placement"];
     host.replaceChildren();
+    if (state.module === "reading" && item.kind === "book") {
+      const question = item.evidence?.entry_question;
+      host.hidden = !question;
+      if (question) host.append(make("p", "book-entry-question", question));
+      return;
+    }
     const placement = item.placement;
     if (!placement) {
       host.hidden = true;
       return;
     }
     host.hidden = false;
-    host.open = true;
-    host.append(make("summary", "", "学习路径"));
     host.append(make("span", "placement-spine", placement.spine_title));
     if (placement.stage_title !== item.title) host.append(make("span", "placement-stage", placement.stage_title));
     if (["METADATA", "RESOURCE_ROUTE"].includes(placement.depth)) {
@@ -1894,8 +1912,8 @@
 
     if (response.status === 401) {
       if (!settings.allowUnauthenticated) showLogin(window.HUB_REMOTE?.kind === "shared"
-        ? "会话已过期，请重新输入口令。" : window.HUB_REMOTE
-          ? "GitHub 连接已过期，请重新连接。" : "会话已过期，请重新输入密码。");
+        ? "会话已过期，请重新输入用户名。" : window.HUB_REMOTE
+          ? "GitHub 连接已过期，请重新连接。" : "会话已过期，请重新输入用户名。");
       throw new AuthRequiredError("需要登录");
     }
 

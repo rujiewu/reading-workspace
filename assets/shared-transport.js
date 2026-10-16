@@ -93,10 +93,11 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     if (!saved) continue;
     try {
       const value = JSON.parse(saved);
-      if (validSession(value)) { session = value; rememberDevice = Boolean(deviceSnapshot); break; }
+      if (validSession(value)) { session = value; rememberDevice = value.remember_device !== false; break; }
     } catch { /* A stale tab must not hide a valid remembered credential. */ }
   }
   if (!session && (tabSnapshot || deviceSnapshot)) forgetSession();
+  if (session && rememberDevice) persistSession();
 
   function gatewayURL(path, endpoint = apiBase) {
     if (!apiBase) throw new Error('共享服务尚未配置，可以稍后再试。');
@@ -174,7 +175,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     }
     if (!unauthenticated && !validSession(session)) {
       forgetSession();
-      return json({ detail: '请重新输入访问密码。' }, 401);
+      return json({ detail: '请重新输入用户名。' }, 401);
     }
     let endpoint = fallbackBase ? await selectGateway(revision) : apiBase;
     if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
@@ -472,11 +473,12 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       const authenticatedSession = { token: connected.token,
         expires_at: sessionDate(connected.expires_at),
         ...(connected.refresh_token ? { refresh_token: connected.refresh_token,
-          refresh_expires_at: sessionDate(connected.refresh_expires_at) } : {}) };
+          refresh_expires_at: sessionDate(connected.refresh_expires_at) } : {}),
+        remember_device: body?.remember_device !== false };
       if (revision !== sessionRevision) throw new Error('登录请求已取消，请重试。');
-      if (!connected.authenticated || !validSession(authenticatedSession)) throw new Error('登录未完成，请重新输入口令。');
+      if (!connected.authenticated || !validSession(authenticatedSession)) throw new Error('登录未完成，请重新输入用户名。');
       session = authenticatedSession;
-      rememberDevice = body?.remember_device === true;
+      rememberDevice = authenticatedSession.remember_device;
       persistSession();
       return response;
     }
@@ -497,7 +499,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       return gateway(url.pathname + url.search, method, body);
     }
     if (url.pathname === '/api/organization-index' && method === 'GET') return gateway(url.pathname + url.search);
-    if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问密码。' }, 401); }
+    if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入用户名。' }, 401); }
     if (url.pathname === '/api/annotations') {
       const resource = url.searchParams.get('resource_id') || body?.resource_id;
       if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
@@ -635,9 +637,9 @@ if (sharedHubConfig) {
   window.HUB_REMOTE = window.HUB_SHARED_TRANSPORT(sharedHubConfig);
   document.addEventListener('DOMContentLoaded', () => {
     const label = document.querySelector('label[for=password]');
-    if (label) label.textContent = '访问密码';
+    if (label) label.textContent = '用户名';
     const input = document.getElementById('password');
-    if (input) { input.autocomplete = 'current-password'; input.placeholder = '输入访问密码'; }
+    if (input) { input.autocomplete = 'username'; input.placeholder = '输入用户名'; }
     const badge = document.querySelector('.private-badge');
     if (badge) badge.textContent = '共享保存';
   });
