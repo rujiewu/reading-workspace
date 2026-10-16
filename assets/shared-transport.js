@@ -122,7 +122,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     const revision = sessionRevision;
     let endpoint = fallbackBase ? await selectGateway(revision) : apiBase;
     if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
-    const timeoutMs = path === '/api/login' ? 12000 : path.startsWith('/api/chat') ? 240000 : 60000;
+    const timeoutMs = path === '/api/login' ? 12000
+      : path.startsWith('/api/chat') || path === '/api/organization' && method === 'POST' ? 240000 : 60000;
     const timeoutMessage = path === '/api/login'
       ? '连接验证服务超时，请检查网络后重试。'
       : '连接学习服务超时，请检查网络后重试。';
@@ -434,6 +435,10 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       return response;
     }
     if (readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
+    if (url.pathname === '/api/organization' && ['GET', 'POST'].includes(method)) {
+      return gateway(url.pathname + url.search, method, body);
+    }
+    if (url.pathname === '/api/organization-index' && method === 'GET') return gateway(url.pathname + url.search);
     if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问名称。' }, 401); }
     if (url.pathname === '/api/annotations') {
       const resource = url.searchParams.get('resource_id') || body?.resource_id;

@@ -67,7 +67,7 @@ window.HUB_TEXT_ANCHOR = (() => {
   return Object.freeze({ locate, resolve, capture });
 })();
 
-window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
+window.HUB_ANNOTATIONS = ({ api, connected, notify, organizer }) => {
   const get = id => document.getElementById(id);
   const panel = get('annotation-notes'), list = get('annotation-list'), status = get('annotation-status');
   const add = get('add-reading-note'), selectButton = get('annotate-selection');
@@ -100,7 +100,7 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
     for (const entry of entries) {
       const card = make('article', '', 'reading-note');
       const heading = make('div', '', 'reading-note-heading');
-      const label = window.HUB_RECORD_PREVIEW.describe(entry.comment, entry.comment, '学习笔记');
+      const label = window.HUB_RECORD_PREVIEW.annotation(entry);
       const edit = make('button', '', 'reading-note-body'); edit.type = 'button';
       edit.title = '编辑笔记'; edit.setAttribute('aria-label', '编辑笔记：' + label.title);
       edit.append(make('strong', label.title, 'reading-note-title'));
@@ -109,6 +109,11 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
       const remove = make('button', '删除', 'reading-note-delete'); remove.type = 'button';
       remove.setAttribute('aria-label', '删除这条笔记');
       remove.addEventListener('click', () => removeEntry(entry)); heading.append(remove); card.append(heading);
+      if (entry.organization?.retry_known_failure || entry.organization?.retry_allowed) {
+        const retry = make('button', '重试整理', 'reading-note-delete'); retry.type = 'button';
+        retry.addEventListener('click', () => scheduleOrganization(entry, true));
+        heading.append(retry);
+      }
       if (entry.anchor) {
         const jump = make('button', entry.anchor.quote, 'reading-note-quote'); jump.type = 'button';
         jump.title = '回到原文'; jump.setAttribute('aria-label', '回到这条笔记对应的原文');
@@ -122,8 +127,20 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
         card.append(jump);
       }
       list.append(card);
+      scheduleOrganization(entry);
     }
     highlights();
+  }
+  function scheduleOrganization(entry, retry = false) {
+      const current = material, ticket = sequence;
+      const method = retry ? organizer?.retry : organizer?.schedule;
+      method?.({ module: current.module, kind: 'annotation', resource_id: current.id, record_id: entry.id },
+        entry.organization, result => {
+          if (material !== current || ticket !== sequence || !connected() || !entries.includes(entry)
+              || entry.organization?.source_sha256 !== result.source_sha256) return;
+          entry.organization = result;
+          render();
+        });
   }
   async function load() {
     const current = material, ticket = ++sequence;

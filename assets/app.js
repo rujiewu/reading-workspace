@@ -43,6 +43,7 @@
   let studyNavigation;
   let workspaceState;
   let readingNotes;
+  let organizer;
   let noteSaveTimer;
   const NOTE_SAVE_DELAY = 2500;
 
@@ -53,9 +54,10 @@
   function start() {
     collectElements();
     workspaceState = window.HUB_WORKSPACE_STATE(() => window.localStorage);
-    readingNotes = window.HUB_ANNOTATIONS?.({ api, notify,
-      connected: () => !state.readOnly && !elements['app-shell'].hidden
-        && (window.HUB_REMOTE?.kind !== 'shared' || window.HUB_REMOTE.hasSession()) });
+    const connected = () => !state.readOnly && !elements['app-shell'].hidden
+      && (window.HUB_REMOTE?.kind !== 'shared' || window.HUB_REMOTE.hasSession());
+    organizer = window.HUB_ORGANIZER({ api, connected });
+    readingNotes = window.HUB_ANNOTATIONS?.({ api, notify, connected, organizer });
     studyNavigation = window.HUB_STUDY_NAVIGATION(document.getElementById("resource-detail"),
       elements["study-section"], document.querySelector(".detail-navigation"), document.getElementById("study-position"),
       value => {
@@ -91,7 +93,7 @@
       "focus-toggle", "resume-status",
       "record-status", "answer-tools", "resource-content", "content-filter",
       "discussion-toggle", "discussion-close",
-      "notes-toggle", "notes-close", "notes-panel",
+      "notes-toggle", "notes-close", "notes-panel", "note-organization", "note-organization-retry",
     ].forEach((id) => {
       elements[id] = document.getElementById(id);
     });
@@ -1280,6 +1282,8 @@
 
   function noteChanged() {
     state.noteEditRevision += 1;
+    elements['note-organization'].hidden = true;
+    elements['note-organization-retry'].hidden = true;
     if (state.readOnly || !state.noteReady) return;
     elements["note-status"].textContent = state.noteSyncFailed
       ? "草稿已保留，请重试保存。"
@@ -1408,6 +1412,9 @@
     state.noteSHA = draft?.sha;
     state.preservedNoteDraft = Boolean(draft);
     state.noteReady = false;
+    state.noteOrganization = null;
+    elements['note-organization'].hidden = true;
+    elements['note-organization-retry'].hidden = true;
     const scope = noteScope();
     setNoteControls();
     if (state.readOnly) { elements["note-status"].textContent = "记录未连接"; return; }
@@ -1434,6 +1441,7 @@
         state.noteSHA = data?.sha;
       }
       state.noteReady = true;
+      organizeAnswer(data?.organization, scope);
       state.preservedNoteDraft = false;
       elements["note-status"].textContent = draft ? state.noteSyncFailed
         ? data?.sha !== draft.sha ? "共享回答已更新；草稿已保留，保存时会检查原版本。"
@@ -1451,6 +1459,28 @@
         scheduleNoteSave();
       }
     }
+  }
+
+  function organizeAnswer(organization, scope) {
+    if (!organization || state.readOnly || !currentNoteScope(scope)) return;
+    state.noteOrganization = organization;
+    const show = result => {
+      if (state.readOnly || !currentNoteScope(scope)
+          || state.noteOrganization?.source_sha256 !== result.source_sha256) return;
+      state.noteOrganization = result;
+      const label = window.HUB_RECORD_PREVIEW.describe({ organization: result }, '练习回答');
+      const failed = ['FAILED', 'UNKNOWN', 'UNAVAILABLE', 'INVALID'].includes(result.status);
+      elements['note-organization'].hidden = (!label.generated && !failed) || noteIsDirty();
+      elements['note-organization'].textContent = label.generated ? `${label.title} · ${label.summary}` : label.summary;
+      elements['note-organization-retry'].hidden = noteIsDirty() || !(result.retry_known_failure || result.retry_allowed);
+      elements['note-organization-retry'].onclick = () => {
+        if (currentNoteScope(scope) && !noteIsDirty() && state.noteOrganization?.source_sha256 === result.source_sha256) {
+          organizer.retry({ module: scope.module, kind: 'answer', resource_id: scope.resourceId }, state.noteOrganization, show);
+        }
+      };
+    };
+    show(organization);
+    organizer.schedule({ module: scope.module, kind: 'answer', resource_id: scope.resourceId }, organization, show);
   }
 
   async function saveNote(options = {}) {
@@ -1481,6 +1511,7 @@
       }
       state.noteBaseline = answer;
       state.noteSHA = saved?.sha;
+      organizeAnswer(saved?.organization, scope);
       state.noteSyncFailed = false;
       state.noteEditRevision += 1;
       elements["note-status"].textContent = noteIsDirty()
@@ -1540,6 +1571,25 @@
       button.append(make("span", "record-source", resourceTitle(session.resource_id)));
       button.setAttribute("aria-label", `${label.title}，${resourceTitle(session.resource_id)}`);
       elements["session-list"].append(button);
+      const authRevision = state.authRequestToken;
+      organizer.schedule({ module: state.module, kind: 'session', resource_id: session.resource_id, record_id: session.id },
+        session.organization, result => {
+          if (state.readOnly || authRevision !== state.authRequestToken || !state.sessions.includes(session)
+              || session.organization?.source_sha256 !== result.source_sha256) return;
+          session.organization = result;
+          renderSessions();
+        });
+      if (session.organization?.retry_known_failure || session.organization?.retry_allowed) {
+        const retry = make('button', 'session-retry', '重试整理'); retry.type = 'button';
+        retry.addEventListener('click', () => organizer.retry({ module: state.module, kind: 'session',
+          resource_id: session.resource_id, record_id: session.id }, session.organization, result => {
+          if (state.readOnly || authRevision !== state.authRequestToken || !state.sessions.includes(session)
+              || session.organization?.source_sha256 !== result.source_sha256) return;
+          session.organization = result;
+          renderSessions();
+        }));
+        elements['session-list'].append(retry);
+      }
     });
   }
 

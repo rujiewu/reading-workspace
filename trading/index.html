@@ -10,7 +10,7 @@
     <title>SuperIntelligence</title>
     <link rel="stylesheet" href="/superintelligence-workspace/assets/app.css?v=098c1c39670f20be">
     <link rel="stylesheet" href="/superintelligence-workspace/assets/workspace.css?v=8e9a3bffac5078b2">
-    <script>window.HUB_SITE_BASE="/superintelligence-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/SuperIntelligence", "module": "trading", "base": "/superintelligence-workspace", "transport": "shared", "apiBase": "https://superintelligence-api-rujiewuac-8230.vercel.app", "apiFallbackOrigin": "https://reading-workspace-api.zippybox2.chatgpt.site"};window.HUB_ASSET_VERSIONS={"/assets/annotations.js": "4d9bbbc87510639f", "/assets/app.css": "098c1c39670f20be", "/assets/app.js": "092f1bf03d936a38", "/assets/book-study.css": "eb2226e0fb4ac8d8", "/assets/book-study.js": "7cb8f0030af14eec", "/assets/evidence.js": "9844c1d129f467bf", "/assets/github-transport.js": "719e35a700f02fa2", "/assets/library-bridge.css": "0776e6c7cc5ee0e2", "/assets/modules.js": "d2ddfbd02241e119", "/assets/programme.js": "0277752069448e9e", "/assets/record-preview.js": "d3d0828a77672c28", "/assets/shared-transport.js": "2d191c5d1e88a82e", "/assets/study-navigation.js": "4f77c150c4b18732", "/assets/study.js": "9ee7900b707ae267", "/assets/workspace-state.js": "51346413c9a326e0", "/assets/workspace.css": "8e9a3bffac5078b2", "/book-assets/styles.css": "615321a144aab783"};</script><script src="/superintelligence-workspace/assets/modules.js?v=d2ddfbd02241e119" defer></script>
+    <script>window.HUB_SITE_BASE="/superintelligence-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/SuperIntelligence", "module": "trading", "base": "/superintelligence-workspace", "transport": "shared", "apiBase": "https://superintelligence-api-rujiewuac-8230.vercel.app", "apiFallbackOrigin": "https://reading-workspace-api.zippybox2.chatgpt.site"};window.HUB_ASSET_VERSIONS={"/assets/annotations.js": "efc3fa3f69e4ded6", "/assets/app.css": "098c1c39670f20be", "/assets/app.js": "325cce46f3108edf", "/assets/book-study.css": "eb2226e0fb4ac8d8", "/assets/book-study.js": "7cb8f0030af14eec", "/assets/evidence.js": "9844c1d129f467bf", "/assets/github-transport.js": "719e35a700f02fa2", "/assets/library-bridge.css": "0776e6c7cc5ee0e2", "/assets/modules.js": "d2ddfbd02241e119", "/assets/organization.js": "a9388c20b00d9314", "/assets/programme.js": "0277752069448e9e", "/assets/record-preview.js": "822216234b5c2b06", "/assets/shared-transport.js": "347f0d9e5a8e0684", "/assets/study-navigation.js": "4f77c150c4b18732", "/assets/study.js": "9ee7900b707ae267", "/assets/workspace-state.js": "51346413c9a326e0", "/assets/workspace.css": "8e9a3bffac5078b2", "/book-assets/styles.css": "615321a144aab783"};</script><script src="/superintelligence-workspace/assets/modules.js?v=d2ddfbd02241e119" defer></script>
     <script src="/superintelligence-workspace/assets/study.js?v=9ee7900b707ae267" defer></script>
     <script src="/superintelligence-workspace/assets/study-navigation.js?v=4f77c150c4b18732" defer></script>
     <script src="/superintelligence-workspace/assets/workspace-state.js?v=51346413c9a326e0" defer></script>
@@ -18,10 +18,11 @@
     <script src="/superintelligence-workspace/assets/programme.js?v=0277752069448e9e" defer></script>
     <script src="/superintelligence-workspace/assets/book-study.js?v=7cb8f0030af14eec" defer></script>
     <script src="/superintelligence-workspace/assets/github-transport.js?v=719e35a700f02fa2" defer></script>
-    <script src="/superintelligence-workspace/assets/shared-transport.js?v=2d191c5d1e88a82e" defer></script>
-    <script src="/superintelligence-workspace/assets/record-preview.js?v=d3d0828a77672c28" defer></script>
-    <script src="/superintelligence-workspace/assets/annotations.js?v=4d9bbbc87510639f" defer></script>
-    <script src="/superintelligence-workspace/assets/app.js?v=092f1bf03d936a38" defer></script>
+    <script src="/superintelligence-workspace/assets/shared-transport.js?v=347f0d9e5a8e0684" defer></script>
+    <script src="/superintelligence-workspace/assets/record-preview.js?v=822216234b5c2b06" defer></script>
+    <script src="/superintelligence-workspace/assets/organization.js?v=a9388c20b00d9314" defer></script>
+    <script src="/superintelligence-workspace/assets/annotations.js?v=efc3fa3f69e4ded6" defer></script>
+    <script src="/superintelligence-workspace/assets/app.js?v=325cce46f3108edf" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -156,6 +157,8 @@
               </div>
               <label for="note-answer" class="answer-label">练习回答</label>
               <textarea id="note-answer" rows="7" placeholder="在这里写下你的理解、疑问或推演…"></textarea>
+              <p id="note-organization" class="record-summary" hidden></p>
+              <button id="note-organization-retry" class="icon-text-button" type="button" hidden>重试整理</button>
               <div class="note-actions">
                 <button id="save-note" class="secondary-button" type="button">保存回答</button>
                 <button id="discuss-note" class="secondary-button" type="button" title="保存回答并准备问题，确认后再发送">准备讨论</button>
