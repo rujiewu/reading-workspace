@@ -10,6 +10,17 @@ window.HUB_STUDY = Object.freeze({
     return module === "learning" ? Boolean(item.evidence?.lesson)
       : module === "reading" ? item.kind === "book" : true;
   },
+  searchCatalog(items, query) {
+    const normalize = text => String(text || "").normalize("NFKC").toLocaleLowerCase();
+    const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+    return items.map((item, index) => {
+      const title = normalize(item.title);
+      const metadata = normalize([item.subtitle, item.group, item.placement?.spine_title, item.placement?.stage_title].join(" "));
+      const body = normalize(item.body);
+      if (!terms.every(term => title.includes(term) || metadata.includes(term) || body.includes(term))) return null;
+      return { item, index, score: terms.reduce((sum, term) => sum + (title.includes(term) ? 4 : metadata.includes(term) ? 2 : 1), 0) };
+    }).filter(Boolean).sort((a, b) => b.score - a.score || a.index - b.index).map(row => row.item);
+  },
   sections(source) {
     const result = [];
     let title = "正文";

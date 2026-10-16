@@ -9,9 +9,9 @@
     <meta name="description" content="阅读、学习、交易研究与投资决策的知识工作台。">
     <title>SuperIntelligence</title>
     <link rel="stylesheet" href="/superintelligence-workspace/assets/app.css?v=098c1c39670f20be">
-    <link rel="stylesheet" href="/superintelligence-workspace/assets/workspace.css?v=7ae8635e425c51a1">
-    <script>window.HUB_SITE_BASE="/superintelligence-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/SuperIntelligence", "module": "reading", "base": "/superintelligence-workspace", "transport": "shared", "apiBase": "https://superintelligence-api-rujiewuac-8230.vercel.app", "apiFallbackOrigin": "https://reading-workspace-api.zippybox2.chatgpt.site"};window.HUB_ASSET_VERSIONS={"/assets/annotations.js": "efc3fa3f69e4ded6", "/assets/app.css": "098c1c39670f20be", "/assets/app.js": "93145178d6170783", "/assets/book-study.css": "eb2226e0fb4ac8d8", "/assets/book-study.js": "7cb8f0030af14eec", "/assets/evidence.js": "9844c1d129f467bf", "/assets/github-transport.js": "719e35a700f02fa2", "/assets/library-bridge.css": "0776e6c7cc5ee0e2", "/assets/modules.js": "d2ddfbd02241e119", "/assets/organization.js": "a9388c20b00d9314", "/assets/programme.js": "0277752069448e9e", "/assets/record-preview.js": "822216234b5c2b06", "/assets/shared-transport.js": "71fd8aeebe7634d9", "/assets/study-navigation.js": "4f77c150c4b18732", "/assets/study.js": "9ee7900b707ae267", "/assets/workspace-state.js": "51346413c9a326e0", "/assets/workspace.css": "7ae8635e425c51a1", "/book-assets/styles.css": "615321a144aab783"};</script><script src="/superintelligence-workspace/assets/modules.js?v=d2ddfbd02241e119" defer></script>
-    <script src="/superintelligence-workspace/assets/study.js?v=9ee7900b707ae267" defer></script>
+    <link rel="stylesheet" href="/superintelligence-workspace/assets/workspace.css?v=304f3a358ac2cc9c">
+    <script>window.HUB_SITE_BASE="/superintelligence-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/SuperIntelligence", "module": "reading", "base": "/superintelligence-workspace", "transport": "shared", "apiBase": "https://superintelligence-api-rujiewuac-8230.vercel.app", "apiFallbackOrigin": "https://reading-workspace-api.zippybox2.chatgpt.site"};window.HUB_ASSET_VERSIONS={"/assets/annotations.js": "efc3fa3f69e4ded6", "/assets/app.css": "098c1c39670f20be", "/assets/app.js": "6ca4e5ada5571c8d", "/assets/book-study.css": "eb2226e0fb4ac8d8", "/assets/book-study.js": "7cb8f0030af14eec", "/assets/evidence.js": "9844c1d129f467bf", "/assets/github-transport.js": "719e35a700f02fa2", "/assets/library-bridge.css": "0776e6c7cc5ee0e2", "/assets/modules.js": "e7e14fd6e703571c", "/assets/organization.js": "a9388c20b00d9314", "/assets/programme.js": "0277752069448e9e", "/assets/record-preview.js": "822216234b5c2b06", "/assets/shared-transport.js": "71fd8aeebe7634d9", "/assets/study-navigation.js": "4f77c150c4b18732", "/assets/study.js": "4d3f7f7e98b266e4", "/assets/workspace-state.js": "51346413c9a326e0", "/assets/workspace.css": "304f3a358ac2cc9c", "/book-assets/styles.css": "615321a144aab783"};</script><script src="/superintelligence-workspace/assets/modules.js?v=e7e14fd6e703571c" defer></script>
+    <script src="/superintelligence-workspace/assets/study.js?v=4d3f7f7e98b266e4" defer></script>
     <script src="/superintelligence-workspace/assets/study-navigation.js?v=4f77c150c4b18732" defer></script>
     <script src="/superintelligence-workspace/assets/workspace-state.js?v=51346413c9a326e0" defer></script>
     <script src="/superintelligence-workspace/assets/evidence.js?v=9844c1d129f467bf" defer></script>
@@ -22,7 +22,7 @@
     <script src="/superintelligence-workspace/assets/record-preview.js?v=822216234b5c2b06" defer></script>
     <script src="/superintelligence-workspace/assets/organization.js?v=a9388c20b00d9314" defer></script>
     <script src="/superintelligence-workspace/assets/annotations.js?v=efc3fa3f69e4ded6" defer></script>
-    <script src="/superintelligence-workspace/assets/app.js?v=93145178d6170783" defer></script>
+    <script src="/superintelligence-workspace/assets/app.js?v=6ca4e5ada5571c8d" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -84,7 +84,6 @@
           <div class="module-heading">
             <p id="module-eyebrow" class="sr-only"></p>
             <h1 id="library-title"></h1>
-            <p id="module-description" class="module-description"></p>
           </div>
 
           <label class="search-box" for="resource-search">
@@ -95,18 +94,18 @@
           </label>
           <div class="catalog-filters">
           <div id="content-filter" class="content-filter" hidden>
-            <label for="resource-content">内容</label>
+            <label for="resource-content" class="sr-only">内容</label>
             <select id="resource-content"></select>
           </div>
-          <div class="group-filter">
-            <label for="resource-group" id="group-label">分类</label>
-            <select id="resource-group"><option value="">全部分类</option></select>
           </div>
-          </div>
+          <button id="catalog-location" class="catalog-location" type="button" aria-expanded="false" aria-controls="catalog-topics">
+            <span id="catalog-scope">全部主题</span><span aria-hidden="true">⌄</span>
+          </button>
           <div class="list-meta">
             <span id="resource-count">0 项资料</span>
             <span id="catalog-status" role="status" aria-live="polite"></span>
           </div>
+          <nav id="catalog-topics" class="catalog-topics" aria-label="选择主题" hidden></nav>
           <div id="resource-list" class="resource-list" role="listbox" aria-label="资料列表"></div>
         </section>
 
@@ -228,7 +227,7 @@
           <form id="chat-form" class="chat-form">
             <div id="discussion-options" class="discussion-options" hidden>
               <label for="discussion-model"><span class="sr-only">讨论模型</span><select id="discussion-model" aria-label="讨论模型"></select></label>
-              <label for="discussion-effort"><span class="discussion-effort-label">思考</span><select id="discussion-effort" aria-label="思考深度"></select></label>
+              <label for="discussion-effort"><span class="sr-only">思考深度</span><select id="discussion-effort" aria-label="思考深度"></select></label>
             </div>
             <label class="sr-only" for="chat-input">输入消息</label>
             <textarea id="chat-input" rows="2" placeholder="围绕当前资料提问…" required></textarea>

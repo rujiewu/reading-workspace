@@ -38,6 +38,8 @@
     publicChatDraft: null,
     discussionModels: [],
     discussionReady: false,
+    catalogScope: null,
+    catalogBrowsing: false,
   };
 
   const elements = {};
@@ -82,14 +84,14 @@
   function collectElements() {
     [
       "boot-view", "login-view", "login-form", "password", "login-submit", "login-error",
-      "app-shell", "logout", "theme-toggle", "module-eyebrow", "library-title", "module-description", "resource-search",
+      "app-shell", "logout", "theme-toggle", "module-eyebrow", "library-title", "resource-search",
       "resource-count", "catalog-status", "resource-list", "detail-empty", "detail-content",
       "detail-title", "detail-placement", "detail-subtitle", "detail-body", "links-section",
       "resource-links", "exercise-panel", "exercise-prompt", "note-answer", "note-status",
       "save-note", "new-session", "chat-context", "history-drawer", "session-count",
       "session-list", "chat-messages", "chat-form", "chat-input", "chat-status",
       "chat-send", "model-meta", "toast",
-      "resource-group", "group-label", "text-section",
+      "catalog-location", "catalog-scope", "catalog-topics", "text-section",
       "practice-guide", "insert-worksheet", "discuss-note",
       "study-section", "remember-device", "remember-device-row",
       "discussion-options", "discussion-model", "discussion-effort",
@@ -106,8 +108,6 @@
     const config = MODULES[state.module];
     elements["module-eyebrow"].textContent = config.eyebrow;
     elements["library-title"].textContent = config.title;
-    elements["module-description"].textContent = config.description;
-    elements["group-label"].textContent = config.groupLabel;
     const choices = window.HUB_STUDY.catalogChoices(state.module);
     elements["resource-content"].replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
     elements["content-filter"].hidden = choices.length < 2;
@@ -187,9 +187,27 @@
     elements["focus-toggle"].addEventListener("click", () => {
       setFocus(document.documentElement.dataset.focus !== "true");
     });
-    elements["resource-search"].addEventListener("input", renderResourceList);
-    elements["resource-group"].addEventListener("change", renderResourceList);
-    elements["resource-content"].addEventListener("change", renderResourceList);
+    elements["resource-search"].addEventListener("input", () => {
+      state.catalogBrowsing = false;
+      renderResourceList();
+    });
+    elements["catalog-location"].addEventListener("click", () => {
+      state.catalogBrowsing = !state.catalogBrowsing;
+      renderResourceList();
+      if (state.catalogBrowsing) elements["catalog-topics"].querySelector('[aria-current="true"]')?.focus();
+    });
+    elements["catalog-topics"].addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        state.catalogBrowsing = false;
+        renderResourceList();
+        elements["catalog-location"].focus();
+      }
+    });
+    elements["resource-content"].addEventListener("change", () => {
+      const available = state.items.filter(item => window.HUB_STUDY.catalogMatches(item, state.module, elements["resource-content"].value));
+      if (!available.some(item => catalogOutline(item).groupKey === state.catalogScope)) state.catalogScope = "";
+      renderResourceList();
+    });
     elements["study-section"].addEventListener("change", () => {
       if (elements["study-section"].value === "extensions") {
         jumpTo("links-title");
@@ -522,10 +540,6 @@
         catch { setCatalogStatus("阅读位置暂未同步；可以继续阅读。"); }
       }
       if (token !== state.workspaceLoadToken || mode !== state.readOnly) return;
-      elements["resource-group"].replaceChildren(new Option("全部分类", ""));
-      [...new Set(state.items.map(item => item.group))].forEach(group => {
-        elements["resource-group"].append(new Option(group, group));
-      });
       elements["model-meta"].textContent = "";
       loadDiscussionModels(token, mode);
       setCatalogStatus("");
@@ -624,62 +638,54 @@
   }
 
   function renderResourceList() {
-    const query = normalize(elements["resource-search"].value);
-    const group = elements["resource-group"].value;
-    const candidates = state.items.filter(item => !group || item.group === group);
-    const matches = query ? candidates.filter((item) => {
-      const placement = item.placement || {};
-      return normalize(`${item.title || ""} ${item.subtitle || ""} ${item.body || ""} `
-        + `${placement.spine_title || ""} ${placement.stage_title || ""}`).includes(query);
-    }) : candidates.filter(item => window.HUB_STUDY.catalogMatches(item, state.module, elements["resource-content"].value));
-    const visible = outlineOrder(matches);
-    const stageCounts = new Map();
-    visible.forEach(item => {
+    const query = elements["resource-search"].value.trim();
+    const filter = elements["resource-content"].value;
+    const candidates = state.items.filter(item => window.HUB_STUDY.catalogMatches(item, state.module, filter));
+    const groups = new Map();
+    outlineOrder(candidates).forEach(item => {
       const outline = catalogOutline(item);
-      const key = JSON.stringify([outline.groupKey, outline.stageKey]);
-      stageCounts.set(key, (stageCounts.get(key) || 0) + 1);
+      if (!groups.has(outline.groupKey)) groups.set(outline.groupKey, { title: outline.groupTitle, count: 0 });
+      groups.get(outline.groupKey).count++;
     });
-
-    elements["resource-list"].replaceChildren();
-    elements["resource-list"].dataset.content = query ? "all" : elements["resource-content"].value;
-    elements["resource-count"].textContent = `${visible.length} 项${query ? "匹配" : "材料"}`;
-
+    if (groups.size < 2) state.catalogBrowsing = false;
+    const browsing = state.catalogBrowsing;
+    elements["catalog-location"].hidden = groups.size < 2;
+    elements["catalog-scope"].textContent = browsing ? "选择主题" : query ? "搜索全部材料" : groups.get(state.catalogScope)?.title || "全部材料";
+    elements["catalog-location"].setAttribute("aria-expanded", String(browsing));
+    elements["catalog-topics"].hidden = !browsing;
+    elements["resource-list"].hidden = browsing;
+    elements["catalog-topics"].replaceChildren();
+    if (browsing) {
+      [["", { title: "全部材料", count: candidates.length }], ...groups].forEach(([key, group]) => {
+        const button = make("button", "catalog-topic");
+        button.type = "button";
+        button.dataset.catalogScope = key;
+        button.setAttribute("aria-current", String(key === (state.catalogScope || "")));
+        button.append(make("span", "", group.title), make("span", "catalog-topic-count", String(group.count)));
+        button.addEventListener("click", () => {
+          state.catalogScope = key;
+          state.catalogBrowsing = false;
+          elements["resource-search"].value = "";
+          renderResourceList();
+          elements["catalog-location"].focus();
+        });
+        elements["catalog-topics"].append(button);
+      });
+    }
+    const matches = query ? window.HUB_STUDY.searchCatalog(state.items, query)
+      : outlineOrder(candidates.filter(item => !state.catalogScope || catalogOutline(item).groupKey === state.catalogScope));
+    const visible = matches;
+    const list = elements["resource-list"];
+    list.replaceChildren();
+    list.dataset.content = query ? "all" : filter;
+    elements["resource-count"].textContent = browsing ? `${groups.size} 个主题` : `${visible.length} 项${query ? "匹配" : "材料"}`;
     if (!visible.length) {
-      const empty = make("p", "empty-list", query ? "没有匹配的资料。" : "这个模块还没有资料。");
-      elements["resource-list"].append(empty);
+      list.append(make("p", "empty-list", query ? "没有匹配的资料，试试书名、作者或关键词。" : "此范围暂无材料，可切换主题或内容类型。"));
       return;
     }
-
     const fragment = document.createDocumentFragment();
-    let currentGroup;
-    let currentStage;
-    let groupNode;
-    let stageNode;
     visible.forEach((item) => {
       const outline = catalogOutline(item);
-      if (currentGroup !== outline.groupKey) {
-        currentGroup = outline.groupKey;
-        currentStage = null;
-        groupNode = make("div", "resource-group");
-        groupNode.setAttribute("role", "group");
-        groupNode.setAttribute("aria-label", outline.groupTitle);
-        const heading = make("div", "resource-group-title", outline.groupTitle);
-        heading.setAttribute("aria-hidden", "true");
-        groupNode.append(heading);
-        fragment.append(groupNode);
-      }
-      if (outline.stageKey && currentStage !== outline.stageKey) {
-        currentStage = outline.stageKey;
-        stageNode = make("div", "resource-stage");
-        stageNode.setAttribute("role", "group");
-        stageNode.setAttribute("aria-label", outline.stageTitle);
-        const heading = make("div", "resource-stage-title", outline.stageTitle);
-        heading.setAttribute("aria-hidden", "true");
-        if (stageCounts.get(JSON.stringify([outline.groupKey, outline.stageKey])) > 1) stageNode.append(heading);
-        groupNode.append(stageNode);
-      } else if (!outline.stageKey) {
-        stageNode = groupNode;
-      }
       const button = make("button", "resource-item");
       button.type = "button";
       button.dataset.resourceId = item.id;
@@ -688,15 +694,14 @@
       button.tabIndex = item.id === state.selectedId || (!visible.some(row => row.id === state.selectedId) && item === visible[0]) ? 0 : -1;
       button.classList.toggle("active", item.id === state.selectedId);
       const title = make("strong", "", item.title || "未命名资料");
-      if (state.module === "trading") {
-        title.append(make("span", "resource-kind", materialKindLabel(item.kind)));
-      }
+      if (state.module === "trading") title.append(make("span", "resource-kind", materialKindLabel(item.kind)));
       if (item.sequence) {
         const number = make("span", "sequence-number", String(item.sequence.position).padStart(2, "0"));
         number.setAttribute("aria-label", `第 ${item.sequence.position} 项`);
         title.prepend(number);
       }
       button.append(title);
+      if (query || !state.catalogScope) button.append(make("span", "resource-location", outline.groupTitle));
       const rawSubtitle = item.subtitle || preview(item.body) || "打开查看详情";
       const subtitle = rawSubtitle.replace(`${item.group} · `, "").replace(/ · 研究状态：[^·]+$/, "");
       button.append(make("span", "resource-subtitle", subtitle));
@@ -704,13 +709,13 @@
         const label = state.module === "learning" ? item.evidence?.lesson ? "教学课" : "资源路线" : item.placement.depth_label;
         button.append(make("span", "resource-placement", label));
       }
-      stageNode.append(button);
+      fragment.append(button);
     });
-    elements["resource-list"].append(fragment);
-    if (!query) {
-      const active = elements["resource-list"].querySelector('[aria-selected="true"]');
-      if (active) elements["resource-list"].scrollTop = Math.max(0,
-        active.offsetTop - elements["resource-list"].offsetTop - 36);
+    list.append(fragment);
+    if (!query && !browsing) {
+      const active = list.querySelector('[aria-selected="true"]');
+      if (active) list.scrollTop = Math.max(0, active.offsetTop - list.offsetTop - 36);
+      else list.scrollTop = 0;
     }
   }
 
@@ -812,6 +817,8 @@
     elements["resume-status"].hidden = true;
     if (!(options && options.fromSession)) state.sessionLoadToken += 1;
     state.selectedId = item.id;
+    state.catalogBrowsing = false;
+    if (state.catalogScope !== "" && !elements["resource-search"].value.trim()) state.catalogScope = catalogOutline(item).groupKey;
     if (!window.HUB_STUDY.catalogMatches(item, state.module, elements["resource-content"].value)) {
       elements["resource-content"].value = "all";
     }
@@ -990,7 +997,7 @@
       return;
     }
     host.hidden = false;
-    host.open = false;
+    host.open = true;
     host.append(make("summary", "", "学习路径"));
     host.append(make("span", "placement-spine", placement.spine_title));
     if (placement.stage_title !== item.title) host.append(make("span", "placement-stage", placement.stage_title));
@@ -1782,7 +1789,7 @@
   }
 
   function effortLabel(value) {
-    return { low: "较浅", medium: "标准", high: "深入", xhigh: "更深入", max: "最高" }[value] || "";
+    return ["low", "medium", "high", "xhigh", "max"].includes(value) ? value : "";
   }
 
   function configureEfforts(defaultEffort) {
@@ -1794,7 +1801,7 @@
   }
 
   function rememberDiscussionChoice() {
-    try { localStorage.setItem(`hub-discussion-choice-v1:${state.module}`, JSON.stringify({
+    try { localStorage.setItem(`hub-discussion-choice-v2:${state.module}`, JSON.stringify({
       model: elements["discussion-model"].value, effort: elements["discussion-effort"].value,
     })); } catch { /* No records or credentials enter this preference. */ }
   }
@@ -1808,7 +1815,7 @@
       if (token !== state.workspaceLoadToken || publicMode !== state.readOnly) return;
       if (!Array.isArray(catalog.models) || !catalog.models.length) throw new Error("讨论模型尚未配置。");
       let preferred = {};
-      try { preferred = JSON.parse(localStorage.getItem(`hub-discussion-choice-v1:${state.module}`) || '{}'); } catch { /* Optional preferences only. */ }
+      try { preferred = JSON.parse(localStorage.getItem(`hub-discussion-choice-v2:${state.module}`) || '{}'); } catch { /* Optional preferences only. */ }
       const previous = elements["discussion-model"].value || preferred.model;
       state.discussionModels = catalog.models;
       elements["discussion-model"].replaceChildren(...catalog.models.map(item => new Option(item.label, item.id)));
