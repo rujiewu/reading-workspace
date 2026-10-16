@@ -177,13 +177,19 @@
 .annotation-editor { min-height: 0; overflow-y: auto; padding: 4px; }
 .annotation-editor textarea { width: 100%; padding: 12px; border: 1px solid var(--line);
   border-radius: 8px; background: var(--surface); color: var(--body-ink); font: inherit; resize: vertical; }
-.reading-note-heading { display: flex; justify-content: flex-end; }
-.reading-note-delete { border: 0; color: var(--muted); background: transparent; padding: 4px 0 4px 10px; font-size: 12px; }
+.reading-note-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.reading-note-title { display: block; min-width: 0; border: 0; padding: 0; background: transparent;
+  text-align: left; font: inherit; font-size: 14px; font-weight: 600; color: var(--ink);
+  line-height: 1.7; overflow-wrap: anywhere; }
+.reading-note-delete { flex-shrink: 0; border: 0; color: var(--muted); background: transparent; padding: 4px 0 4px 10px; font-size: 12px; }
 .reading-note-delete:hover { color: var(--danger); }
 .reading-note-body, .reading-note-quote { display: block; width: 100%; text-align: left; background: transparent;
   border: 0; border-radius: 0; font: inherit; padding: 6px 0; color: var(--body-ink);
   line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reading-note-quote { border-left: 2px solid var(--line-strong); padding-left: 10px; color: var(--muted); font-size: 12px; }
+.reading-note-body { flex: 1; min-width: 0; padding: 0; color: var(--muted); font-size: 13px; }
+.reading-note-body .record-summary { margin-top: 5px; white-space: normal; }
+.reading-note-quote { max-height: 4.5em; overflow: hidden; }
 .annotation-editor blockquote { margin: 8px 0 14px; padding-left: 12px; border-left: 2px solid var(--line-strong);
   color: var(--muted); font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
 .annotation-editor .note-actions { margin-top: 10px; }

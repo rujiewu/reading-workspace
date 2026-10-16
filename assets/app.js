@@ -1534,8 +1534,11 @@
       button.dataset.sessionId = session.id;
       button.classList.toggle("active", session.id === state.sessionId);
       if (session.id === state.sessionId) button.setAttribute("aria-current", "true");
-      button.append(make("span", "", session.title || "未命名对话"));
-      button.append(make("span", "", resourceTitle(session.resource_id)));
+      const label = window.HUB_RECORD_PREVIEW.conversation(session);
+      button.append(make("strong", "record-title", label.title));
+      if (label.summary) button.append(make("span", "record-summary", label.summary));
+      button.append(make("span", "record-source", resourceTitle(session.resource_id)));
+      button.setAttribute("aria-label", `${label.title}，${resourceTitle(session.resource_id)}`);
       elements["session-list"].append(button);
     });
   }
@@ -1598,6 +1601,8 @@
       if (operationToken !== state.sessionLoadToken) return;
       state.sessionId = data.id;
       state.sessionResourceId = data.resource_id || state.selectedId;
+      const listed = state.sessions.find(item => item.id === data.id);
+      if (listed) listed.messages = Array.isArray(data.messages) ? data.messages : [];
       renderMessages(Array.isArray(data.messages) ? data.messages : []);
       renderSessions();
       elements["history-drawer"].open = false;

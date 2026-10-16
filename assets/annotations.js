@@ -100,6 +100,12 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
     for (const entry of entries) {
       const card = make('article', '', 'reading-note');
       const heading = make('div', '', 'reading-note-heading');
+      const label = window.HUB_RECORD_PREVIEW.describe(entry.comment, entry.comment, '学习笔记');
+      const edit = make('button', '', 'reading-note-body'); edit.type = 'button';
+      edit.title = '编辑笔记'; edit.setAttribute('aria-label', '编辑笔记：' + label.title);
+      edit.append(make('strong', label.title, 'reading-note-title'));
+      if (label.summary) edit.append(make('span', label.summary, 'record-summary'));
+      edit.addEventListener('click', () => open(entry)); heading.append(edit);
       const remove = make('button', '删除', 'reading-note-delete'); remove.type = 'button';
       remove.setAttribute('aria-label', '删除这条笔记');
       remove.addEventListener('click', () => removeEntry(entry)); heading.append(remove); card.append(heading);
@@ -115,9 +121,7 @@ window.HUB_ANNOTATIONS = ({ api, connected, notify }) => {
         });
         card.append(jump);
       }
-      const edit = make('button', entry.comment, 'reading-note-body'); edit.type = 'button';
-      edit.title = '编辑笔记'; edit.setAttribute('aria-label', '编辑这条笔记');
-      edit.addEventListener('click', () => open(entry)); card.append(edit); list.append(card);
+      list.append(card);
     }
     highlights();
   }
