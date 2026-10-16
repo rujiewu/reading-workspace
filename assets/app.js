@@ -36,6 +36,8 @@
     noteSyncFailed: false,
     noteComposing: false,
     publicChatDraft: null,
+    discussionModels: [],
+    discussionReady: false,
   };
 
   const elements = {};
@@ -89,7 +91,8 @@
       "chat-send", "model-meta", "toast",
       "resource-group", "group-label", "text-section",
       "practice-guide", "insert-worksheet", "discuss-note",
-      "study-section", "study-practice",
+      "study-section", "remember-device", "remember-device-row",
+      "discussion-options", "discussion-model", "discussion-effort",
       "focus-toggle", "resume-status",
       "record-status", "answer-tools", "resource-content", "content-filter",
       "discussion-toggle", "discussion-close",
@@ -200,24 +203,8 @@
       event.preventDefault();
       jumpTo(link.hash.slice(1));
     });
-    elements["study-practice"].addEventListener("click", () => {
-      setDetailView("practice");
-      document.getElementById("tab-practice").focus();
-    });
     document.querySelectorAll("button[data-pane]").forEach(button => {
       button.addEventListener("click", () => setPane(button.dataset.pane));
-    });
-    const tabs = [...document.querySelectorAll("[data-detail-view]")];
-    tabs.forEach((button, index) => {
-      button.addEventListener("click", () => setDetailView(button.dataset.detailView));
-      button.addEventListener("keydown", event => {
-        const offset = { ArrowRight: 1, ArrowLeft: -1, Home: -index, End: tabs.length - 1 - index }[event.key];
-        if (offset === undefined) return;
-        event.preventDefault();
-        const next = tabs[(index + offset + tabs.length) % tabs.length];
-        next.focus();
-        setDetailView(next.dataset.detailView);
-      });
     });
     elements["resource-list"].addEventListener("click", (event) => {
       const button = event.target.closest("[data-resource-id]");
@@ -249,7 +236,10 @@
       const button = event.target.closest("[data-session-id]");
       if (button) loadSession(button.dataset.sessionId);
     });
+    elements["discussion-model"].addEventListener("change", () => { configureEfforts(); rememberDiscussionChoice(); });
+    elements["discussion-effort"].addEventListener("change", rememberDiscussionChoice);
     elements["chat-form"].addEventListener("submit", sendMessage);
+    elements["remember-device-row"].hidden = window.HUB_REMOTE?.kind !== "shared";
     elements["chat-input"].addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
@@ -326,7 +316,8 @@
     try {
       await api("/api/login", {
         method: "POST",
-        body: { password },
+        body: { password, ...(window.HUB_REMOTE?.kind === "shared"
+          ? { remember_device: elements["remember-device"].checked } : {}) },
         allowUnauthenticated: true,
       });
       if (token !== state.authRequestToken) return;
@@ -338,7 +329,7 @@
     } catch (error) {
       if (token !== state.authRequestToken) return;
       elements["login-error"].textContent = error instanceof AuthRequiredError
-        ? "访问名称不正确，请再试一次。"
+        ? "访问密码不正确，请再试一次。"
         : error.message || "暂时无法登录，请稍后重试。";
       elements["login-error"].hidden = false;
       elements.password.select();
@@ -406,9 +397,6 @@
     document.querySelector('button[data-pane="notes"]').hidden = enabled;
     if (enabled) { setDiscussion(false); setNotes(false); }
     elements["model-meta"].hidden = enabled;
-    if (window.HUB_REMOTE?.kind === "shared") {
-      document.querySelector(".private-badge").textContent = enabled ? "记录未连接" : "共享保存";
-    }
     document.querySelectorAll("[data-module], .site-header .brand, #text-section a[href], #detail-placement a[href]")
       .forEach(link => link.setAttribute("href", moduleHref(link.getAttribute("href"))));
     document.querySelectorAll(".section-discussion").forEach(part => {
@@ -538,7 +526,8 @@
       [...new Set(state.items.map(item => item.group))].forEach(group => {
         elements["resource-group"].append(new Option(group, group));
       });
-      elements["model-meta"].textContent = modelDescription(catalog.model, catalog.effort);
+      elements["model-meta"].textContent = "";
+      loadDiscussionModels(token, mode);
       setCatalogStatus("");
       renderResourceList();
 
@@ -709,13 +698,11 @@
       }
       button.append(title);
       const rawSubtitle = item.subtitle || preview(item.body) || "打开查看详情";
-      const subtitle = rawSubtitle.replace(`${item.group} · `, "");
+      const subtitle = rawSubtitle.replace(`${item.group} · `, "").replace(/ · 研究状态：[^·]+$/, "");
       button.append(make("span", "resource-subtitle", subtitle));
-      if (item.placement) {
-        const placement = state.module === "learning"
-          ? item.evidence?.lesson ? "教学课" : "资源路线"
-          : state.module === "reading" && item.kind === "book" ? "书籍研究" : item.placement.depth_label;
-        button.append(make("span", "resource-placement", placement));
+      if (item.placement && (state.module === "learning" || ["METADATA", "RESOURCE_ROUTE"].includes(item.placement.depth))) {
+        const label = state.module === "learning" ? item.evidence?.lesson ? "教学课" : "资源路线" : item.placement.depth_label;
+        button.append(make("span", "resource-placement", label));
       }
       stageNode.append(button);
     });
@@ -936,11 +923,10 @@
     elements["detail-content"].hidden = false;
     elements["detail-title"].textContent = item.title || "未命名资料";
     renderPlacement(item);
-    const order = item.sequence ? ` · ${state.module === "learning" ? "单元" : "研究顺序"} ${item.sequence.position} / ${item.sequence.total}` : "";
     const subtitle = state.module === "learning"
       ? (item.subtitle || "").replace(`${item.group} · `, "").replace(/ · (含入门试讲|资源路线)$/, "")
       : item.subtitle || "";
-    elements["detail-subtitle"].textContent = subtitle + order;
+    elements["detail-subtitle"].textContent = subtitle.replace(/ · 研究状态：[^·]+$/, "");
     elements["detail-subtitle"].hidden = !item.subtitle;
 
     const inlineBook = state.module === "reading" && item.kind === "book";
@@ -1004,9 +990,15 @@
       return;
     }
     host.hidden = false;
+    host.open = false;
+    host.append(make("summary", "", "学习路径"));
     host.append(make("span", "placement-spine", placement.spine_title));
     if (placement.stage_title !== item.title) host.append(make("span", "placement-stage", placement.stage_title));
-    host.append(make("span", "placement-depth", placement.depth_label));
+    if (["METADATA", "RESOURCE_ROUTE"].includes(placement.depth)) {
+      host.append(make("span", "placement-depth", placement.depth_label));
+    }
+    const researchStatus = (item.subtitle || "").match(/研究状态：(.+)$/)?.[1];
+    if (researchStatus) host.append(make("span", "placement-research-status", `研究状态：${researchStatus}`));
     const prerequisites = (placement.prerequisite_ids || []).map(findItem).filter(Boolean);
     if (prerequisites.length) {
       const prerequisiteList = make("span", "placement-prerequisites", "先修：");
@@ -1031,7 +1023,7 @@
     nav.hidden = !item.sequence;
     if (!item.sequence) return;
     const heading = make("p", "sequence-caption", state.module === "learning"
-      ? "同领域的学习顺序 · 不代表已掌握" : "继续研究 · 不代表验证通过");
+      ? "继续学习" : "继续阅读");
     const links = make("div", "sequence-links");
     for (const [key, label] of [["previous_id", "← 前一项"], ["next_id", "后一项 →"]]) {
       const target = findItem(item.sequence[key]);
@@ -1192,17 +1184,15 @@
 
   function setDetailView(view) {
     const panel = document.getElementById("resource-detail");
-    state.detailScroll[state.detailView] = panel.scrollTop;
-    const sections = { text: "text-section", practice: "exercise-panel" };
-    Object.entries(sections).forEach(([key, id]) => {
-      document.getElementById(id).hidden = key !== view;
-      const tab = document.getElementById(`tab-${key}`);
-      tab.setAttribute("aria-selected", String(key === view));
-      tab.tabIndex = key === view ? 0 : -1;
-    });
-    state.detailView = view;
-    document.getElementById("study-controls").hidden = view !== "text" || !elements["study-section"].options.length;
-    panel.scrollTop = state.detailScroll[view] || 0;
+    if (view === "practice") {
+      if (state.detailView !== "practice") state.detailScroll.text = panel.scrollTop;
+      state.detailView = "practice";
+      document.getElementById("answer-tools").open = true;
+      jumpTo("exercise-panel");
+    } else {
+      if (state.detailView === "practice") panel.scrollTop = state.detailScroll.text || 0;
+      state.detailView = "text";
+    }
     studyNavigation.refresh();
   }
 
@@ -1667,7 +1657,7 @@
   async function sendMessage(event) {
     event.preventDefault();
     const message = elements["chat-input"].value.trim();
-    if (state.readOnly || !message || !state.selectedId || state.sending) return;
+    if (state.readOnly || !state.discussionReady || !message || !state.selectedId || state.sending) return;
 
     const resourceId = state.selectedId;
     const requestToken = ++state.chatRequestToken;
@@ -1688,11 +1678,12 @@
       }
       const data = await api("/api/chat", {
         method: "POST",
-        body: { session_id: sessionId, message },
+        body: { session_id: sessionId, message, model: elements["discussion-model"].value,
+          reasoning_effort: elements["discussion-effort"].value || undefined },
       });
       if (requestToken !== state.chatRequestToken || resourceId !== state.selectedId) return;
       pending.remove();
-      appendMessage({ role: "assistant", content: data.reply || "" });
+      appendMessage({ role: "assistant", content: data.reply || "", model: data.model, reasoning_effort: data.reasoning_effort });
       setChatStatus(contextDescription(data.context_ids));
       await refreshSessions();
     } catch (error) {
@@ -1765,7 +1756,10 @@
   function appendMessage(message, isError) {
     const role = message.role === "user" ? "user" : "assistant";
     const wrapper = make("div", `message ${role}${isError ? " error" : ""}`);
-    wrapper.append(make("span", "message-label", role === "user" ? "你" : "知识助手"));
+    const choice = state.discussionModels.find(item => item.id === message.model);
+    const depth = effortLabel(message.reasoning_effort);
+    wrapper.append(make("span", "message-label", role === "user" ? "你"
+      : (choice?.label || message.model || "知识助手") + (depth ? ` · ${depth}` : "")));
     const bubble = make("div", "message-bubble");
     if (role === "assistant") renderStructuredText(bubble, assistantDisplayText(String(message.content || "")));
     else bubble.textContent = String(message.content || "");
@@ -1787,7 +1781,52 @@
     return wrapper;
   }
 
+  function effortLabel(value) {
+    return { low: "较浅", medium: "标准", high: "深入", xhigh: "更深入", max: "最高" }[value] || "";
+  }
+
+  function configureEfforts(defaultEffort) {
+    const selected = state.discussionModels.find(item => item.id === elements["discussion-model"].value);
+    const previous = defaultEffort || elements["discussion-effort"].value;
+    elements["discussion-effort"].replaceChildren(...(selected?.efforts || []).map(value => new Option(effortLabel(value) || value, value)));
+    elements["discussion-effort"].value = selected?.efforts.includes(previous) ? previous
+      : selected?.efforts.includes("medium") ? "medium" : selected?.efforts[0] || "";
+  }
+
+  function rememberDiscussionChoice() {
+    try { localStorage.setItem(`hub-discussion-choice-v1:${state.module}`, JSON.stringify({
+      model: elements["discussion-model"].value, effort: elements["discussion-effort"].value,
+    })); } catch { /* No records or credentials enter this preference. */ }
+  }
+
+  async function loadDiscussionModels(token, publicMode) {
+    state.discussionReady = false;
+    elements["discussion-options"].hidden = true;
+    if (publicMode) return;
+    try {
+      const catalog = await api("/api/discussion-models");
+      if (token !== state.workspaceLoadToken || publicMode !== state.readOnly) return;
+      if (!Array.isArray(catalog.models) || !catalog.models.length) throw new Error("讨论模型尚未配置。");
+      let preferred = {};
+      try { preferred = JSON.parse(localStorage.getItem(`hub-discussion-choice-v1:${state.module}`) || '{}'); } catch { /* Optional preferences only. */ }
+      const previous = elements["discussion-model"].value || preferred.model;
+      state.discussionModels = catalog.models;
+      elements["discussion-model"].replaceChildren(...catalog.models.map(item => new Option(item.label, item.id)));
+      elements["discussion-model"].value = catalog.models.some(item => item.id === previous) ? previous : catalog.default_model;
+      configureEfforts(preferred.effort || catalog.default_effort);
+      state.discussionReady = true;
+      elements["discussion-options"].hidden = false;
+      disableComposer(state.sending);
+    } catch (error) {
+      if (token !== state.workspaceLoadToken || publicMode !== state.readOnly) return;
+      setChatStatus(error.message || "模型选项暂时无法读取，请重新连接。", true);
+    }
+  }
+
   function disableComposer(disabled) {
+    disabled = disabled || !state.discussionReady;
+    elements["discussion-model"].disabled = state.readOnly || disabled;
+    elements["discussion-effort"].disabled = state.readOnly || disabled;
     elements["chat-input"].disabled = state.readOnly || disabled || !state.selectedId;
     elements["chat-send"].disabled = state.readOnly || disabled || !state.selectedId;
     elements["new-session"].disabled = state.readOnly || disabled || !state.selectedId;

@@ -259,3 +259,23 @@
   .workspace { display: block; }
   .detail-panel { display: block !important; height: auto; }
 }
+
+/* Keep the subject first; editorial routing is available on demand. */
+.detail-placement { display: block; margin: 6px 0 0; font-size: 12px; }
+.detail-placement summary { width: fit-content; cursor: pointer; color: var(--muted); padding: 3px 0; }
+.detail-placement[open] summary { margin-bottom: 6px; }
+.detail-placement > span { display: block; border: 0 !important; padding: 0 !important; }
+.detail-navigation { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+.exercise-panel { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+.answer-editor > summary { cursor: pointer; color: var(--accent-ink); padding: 10px 0; font-size: 14px; }
+.remember-device { display: flex; align-items: center; gap: 8px; margin: 12px 0; color: var(--muted); font-size: 13px; }
+.remember-device input { width: 16px; height: 16px; accent-color: var(--accent); }
+.discussion-options { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 8px; }
+.discussion-options label { min-width: 0; max-width: 100%; }
+.discussion-options select { max-width: 100%; min-height: 32px; padding: 4px 20px 4px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.discussion-options select:hover { background: var(--surface); }
+.discussion-options select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.model-meta:empty { display: none; }
+
+.discussion-effort-label { color: var(--muted); font-size: 11px; margin-right: 2px; }

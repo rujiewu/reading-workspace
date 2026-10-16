@@ -9,8 +9,8 @@
     <meta name="description" content="阅读、学习、交易研究与投资决策的知识工作台。">
     <title>SuperIntelligence</title>
     <link rel="stylesheet" href="/superintelligence-workspace/assets/app.css?v=098c1c39670f20be">
-    <link rel="stylesheet" href="/superintelligence-workspace/assets/workspace.css?v=8e9a3bffac5078b2">
-    <script>window.HUB_SITE_BASE="/superintelligence-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/SuperIntelligence", "module": "learning", "base": "/superintelligence-workspace", "transport": "shared", "apiBase": "https://superintelligence-api-rujiewuac-8230.vercel.app", "apiFallbackOrigin": "https://reading-workspace-api.zippybox2.chatgpt.site"};window.HUB_ASSET_VERSIONS={"/assets/annotations.js": "efc3fa3f69e4ded6", "/assets/app.css": "098c1c39670f20be", "/assets/app.js": "325cce46f3108edf", "/assets/book-study.css": "eb2226e0fb4ac8d8", "/assets/book-study.js": "7cb8f0030af14eec", "/assets/evidence.js": "9844c1d129f467bf", "/assets/github-transport.js": "719e35a700f02fa2", "/assets/library-bridge.css": "0776e6c7cc5ee0e2", "/assets/modules.js": "d2ddfbd02241e119", "/assets/organization.js": "a9388c20b00d9314", "/assets/programme.js": "0277752069448e9e", "/assets/record-preview.js": "822216234b5c2b06", "/assets/shared-transport.js": "347f0d9e5a8e0684", "/assets/study-navigation.js": "4f77c150c4b18732", "/assets/study.js": "9ee7900b707ae267", "/assets/workspace-state.js": "51346413c9a326e0", "/assets/workspace.css": "8e9a3bffac5078b2", "/book-assets/styles.css": "615321a144aab783"};</script><script src="/superintelligence-workspace/assets/modules.js?v=d2ddfbd02241e119" defer></script>
+    <link rel="stylesheet" href="/superintelligence-workspace/assets/workspace.css?v=7ae8635e425c51a1">
+    <script>window.HUB_SITE_BASE="/superintelligence-workspace";window.HUB_GITHUB_CONFIG={"owner": "rujiewu", "repository": "rujiewu/SuperIntelligence", "module": "learning", "base": "/superintelligence-workspace", "transport": "shared", "apiBase": "https://superintelligence-api-rujiewuac-8230.vercel.app", "apiFallbackOrigin": "https://reading-workspace-api.zippybox2.chatgpt.site"};window.HUB_ASSET_VERSIONS={"/assets/annotations.js": "efc3fa3f69e4ded6", "/assets/app.css": "098c1c39670f20be", "/assets/app.js": "93145178d6170783", "/assets/book-study.css": "eb2226e0fb4ac8d8", "/assets/book-study.js": "7cb8f0030af14eec", "/assets/evidence.js": "9844c1d129f467bf", "/assets/github-transport.js": "719e35a700f02fa2", "/assets/library-bridge.css": "0776e6c7cc5ee0e2", "/assets/modules.js": "d2ddfbd02241e119", "/assets/organization.js": "a9388c20b00d9314", "/assets/programme.js": "0277752069448e9e", "/assets/record-preview.js": "822216234b5c2b06", "/assets/shared-transport.js": "71fd8aeebe7634d9", "/assets/study-navigation.js": "4f77c150c4b18732", "/assets/study.js": "9ee7900b707ae267", "/assets/workspace-state.js": "51346413c9a326e0", "/assets/workspace.css": "7ae8635e425c51a1", "/book-assets/styles.css": "615321a144aab783"};</script><script src="/superintelligence-workspace/assets/modules.js?v=d2ddfbd02241e119" defer></script>
     <script src="/superintelligence-workspace/assets/study.js?v=9ee7900b707ae267" defer></script>
     <script src="/superintelligence-workspace/assets/study-navigation.js?v=4f77c150c4b18732" defer></script>
     <script src="/superintelligence-workspace/assets/workspace-state.js?v=51346413c9a326e0" defer></script>
@@ -18,11 +18,11 @@
     <script src="/superintelligence-workspace/assets/programme.js?v=0277752069448e9e" defer></script>
     <script src="/superintelligence-workspace/assets/book-study.js?v=7cb8f0030af14eec" defer></script>
     <script src="/superintelligence-workspace/assets/github-transport.js?v=719e35a700f02fa2" defer></script>
-    <script src="/superintelligence-workspace/assets/shared-transport.js?v=347f0d9e5a8e0684" defer></script>
+    <script src="/superintelligence-workspace/assets/shared-transport.js?v=71fd8aeebe7634d9" defer></script>
     <script src="/superintelligence-workspace/assets/record-preview.js?v=822216234b5c2b06" defer></script>
     <script src="/superintelligence-workspace/assets/organization.js?v=a9388c20b00d9314" defer></script>
     <script src="/superintelligence-workspace/assets/annotations.js?v=efc3fa3f69e4ded6" defer></script>
-    <script src="/superintelligence-workspace/assets/app.js?v=325cce46f3108edf" defer></script>
+    <script src="/superintelligence-workspace/assets/app.js?v=93145178d6170783" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -38,11 +38,12 @@
         <h1 id="login-title">SuperIntelligence</h1>
         <p class="login-copy">读懂一个问题，连起更多知识。</p>
         <form id="login-form" class="login-form">
-          <label for="password">访问用户</label>
+          <label for="password">访问密码</label>
           <div class="password-row">
-            <input id="password" name="password" type="password" autocomplete="current-password" placeholder="输入访问名称" aria-describedby="access-note" required autofocus>
+            <input id="password" name="password" type="password" autocomplete="current-password" placeholder="输入访问密码" aria-describedby="access-note" required autofocus>
             <button id="login-submit" class="primary-button" type="submit">进入</button>
           </div>
+          <label id="remember-device-row" class="remember-device" hidden><input id="remember-device" type="checkbox">记住此设备（30 天）</label>
           <p id="login-error" class="form-error" role="alert" hidden></p>
         </form>
         <p id="access-note" class="access-note">此入口共用学习记录与对话。</p>
@@ -117,22 +118,18 @@
           <div id="detail-content" hidden>
             <header class="detail-header">
               <h2 id="detail-title"></h2>
-              <div id="detail-placement" class="detail-placement" hidden aria-label="材料在知识主干中的位置"></div>
               <p id="detail-subtitle" class="detail-subtitle"></p>
+              <details id="detail-placement" class="detail-placement" hidden></details>
               <p id="resume-status" class="resume-status" role="status" hidden></p>
             </header>
             <div class="detail-navigation">
-              <div class="detail-tabs" role="tablist" aria-label="资料内容">
-                <button type="button" role="tab" id="tab-text" data-detail-view="text" aria-controls="text-section" aria-selected="true">学习与延伸</button>
-                <button type="button" role="tab" id="tab-practice" data-detail-view="practice" aria-controls="exercise-panel" aria-selected="false" tabindex="-1">练习与笔记</button>
-              </div>
               <div id="study-controls" class="study-controls">
                 <label for="study-section">章节</label>
                 <select id="study-section" aria-label="跳到正文位置"></select>
                 <span id="study-position" title="正文位置，不代表学习完成度"></span>
               </div>
             </div>
-            <section id="text-section" role="tabpanel" aria-labelledby="tab-text" tabindex="0">
+            <section id="text-section" aria-label="学习正文" tabindex="-1">
               <div id="detail-body" class="detail-body"></div>
               <div id="book-study" hidden></div>
               <section id="links-section" class="links-section" aria-labelledby="links-title">
@@ -140,20 +137,17 @@
                 <div id="resource-links" class="resource-links"></div>
                 <div id="evidence-ledger" class="evidence-ledger"></div>
               </section>
-              <button id="study-practice" class="practice-start" type="button">练习与笔记 →</button>
-              <nav id="material-sequence" class="material-sequence" aria-label="同一学习路径的相邻资料" hidden></nav>
-            </section>
-            <section id="exercise-panel" class="exercise-panel" role="tabpanel" aria-labelledby="tab-practice" tabindex="0" hidden>
+              <section id="exercise-panel" class="exercise-panel" aria-labelledby="exercise-title" hidden>
               <div class="section-heading">
                 <div>
                   <h3 id="exercise-title">练习回答</h3>
                 </div>
-                <span class="private-badge">本机保存</span>
               </div>
               <p id="exercise-prompt" class="exercise-prompt"></p>
-              <div id="answer-tools">
+              <div id="practice-guide" class="practice-guide"></div>
+              <details id="answer-tools" class="answer-editor"><summary>写下回答</summary>
               <div class="practice-tools">
-                <button id="insert-worksheet" class="secondary-button" type="button" title="追加到回答末尾，保留已有笔记">加入提纲</button>
+                <button id="insert-worksheet" class="secondary-button" type="button" title="追加到回答末尾，保留已有内容">加入提纲</button>
               </div>
               <label for="note-answer" class="answer-label">练习回答</label>
               <textarea id="note-answer" rows="7" placeholder="在这里写下你的理解、疑问或推演…"></textarea>
@@ -163,10 +157,10 @@
                 <button id="save-note" class="secondary-button" type="button">保存回答</button>
                 <button id="discuss-note" class="secondary-button" type="button" title="保存回答并准备问题，确认后再发送">准备讨论</button>
               </div>
-              <p id="note-status" role="status" aria-live="polite">回答保存在本机；发送问题时，会连同当前资料用于讨论。</p>
-              <p class="practice-disclaimer">发送问题时附上当前资料与已保存回答。</p>
-              </div>
-              <div id="practice-guide" class="practice-guide"></div>
+              <p id="note-status" role="status" aria-live="polite">回答会自动保存；发送问题时，附上当前资料与已保存回答。</p>
+              </details>
+              </section>
+              <nav id="material-sequence" class="material-sequence" aria-label="同一学习路径的相邻资料" hidden></nav>
             </section>
           </div>
         </article>
@@ -232,6 +226,10 @@
           </div>
 
           <form id="chat-form" class="chat-form">
+            <div id="discussion-options" class="discussion-options" hidden>
+              <label for="discussion-model"><span class="sr-only">讨论模型</span><select id="discussion-model" aria-label="讨论模型"></select></label>
+              <label for="discussion-effort"><span class="discussion-effort-label">思考</span><select id="discussion-effort" aria-label="思考深度"></select></label>
+            </div>
             <label class="sr-only" for="chat-input">输入消息</label>
             <textarea id="chat-input" rows="2" placeholder="围绕当前资料提问…" required></textarea>
             <div class="composer-footer">

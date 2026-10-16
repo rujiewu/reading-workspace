@@ -12,6 +12,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     throw new Error('备用学习服务地址无效。');
   }
   const tokenKey = `hub-shared-session:${apiBase || 'unconfigured'}`;
+  const rememberedKey = `${tokenKey}:remembered`;
   const cache = new Map();
   const responseVersions = new WeakMap();
   const pendingQuestions = new Map();
@@ -24,16 +25,39 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
   let navigation = null, navigationDirty = false, navigationTimer, navigationRevision = 0;
   let navigationWrite = null;
   let selectedBase = null, routeSelection = null;
+  let rememberDevice = false, sessionRefresh = null;
   const identity = value => typeof value === 'string' && /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(value);
   const uuid = () => crypto.randomUUID().replaceAll('-', '');
   const json = (value, status = 200) => new Response(JSON.stringify(value), {
     status, headers: { 'Content-Type': 'application/json' },
   });
 
-  function validSession(value) {
+  function validAccess(value) {
     return value && typeof value.token === 'string' && value.token.length > 0
       && value.token.length <= 8192 && Number.isFinite(Date.parse(value.expires_at))
       && Date.parse(value.expires_at) > clock();
+  }
+
+  function validRefresh(value) {
+    return value && typeof value.refresh_token === 'string' && value.refresh_token.length > 0
+      && value.refresh_token.length <= 8192 && Number.isFinite(Date.parse(value.refresh_expires_at))
+      && Date.parse(value.refresh_expires_at) > clock();
+  }
+
+  function validSession(value) { return validAccess(value) || validRefresh(value); }
+
+  function persistSession() {
+    try { storage().setItem(tokenKey, JSON.stringify(session)); } catch { /* Memory remains usable. */ }
+    try {
+      if (rememberDevice) local().setItem(rememberedKey, JSON.stringify(session));
+      else local().removeItem(rememberedKey);
+    } catch { /* Device persistence is optional. */ }
+  }
+
+  function sessionDate(value) {
+    const date = new Date(typeof value === 'number' && Number.isSafeInteger(value) ? value * 1000
+      : typeof value === 'string' ? value : NaN);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : '';
   }
 
   function hasSession() { return !readOnly && validSession(session); }
@@ -43,6 +67,8 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     session = null;
     selectedBase = null;
     routeSelection = null;
+    sessionRefresh = null;
+    rememberDevice = false;
     cache.clear();
     sessionResources.clear();
     activeQuestions.clear();
@@ -51,6 +77,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     changedSections.clear();
     clearTimeout(navigationTimer);
     try { storage().removeItem(tokenKey); } catch { /* Memory is already cleared. */ }
+    try { local().removeItem(rememberedKey); } catch { /* Memory is already cleared. */ }
   }
 
   function setReadOnly(value) {
@@ -59,14 +86,17 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     if (value) forgetSession();
   }
 
-  try {
-    const saved = storage().getItem(tokenKey);
-    if (saved) {
+  let tabSnapshot, deviceSnapshot;
+  try { tabSnapshot = storage().getItem(tokenKey); } catch { /* Device restoration can still work. */ }
+  try { deviceSnapshot = local().getItem(rememberedKey); } catch { /* Current-tab restoration can still work. */ }
+  for (const saved of [tabSnapshot, deviceSnapshot]) {
+    if (!saved) continue;
+    try {
       const value = JSON.parse(saved);
-      if (validSession(value)) session = value;
-      else forgetSession();
-    }
-  } catch { /* An unavailable store requires login in this tab. */ }
+      if (validSession(value)) { session = value; rememberDevice = Boolean(deviceSnapshot); break; }
+    } catch { /* A stale tab must not hide a valid remembered credential. */ }
+  }
+  if (!session && (tabSnapshot || deviceSnapshot)) forgetSession();
 
   function gatewayURL(path, endpoint = apiBase) {
     if (!apiBase) throw new Error('共享服务尚未配置，可以稍后再试。');
@@ -112,14 +142,40 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
     } finally { if (routeSelection === pending) routeSelection = null; }
   }
 
-  async function gateway(path, method = 'GET', body, unauthenticated = false) {
+  async function refreshAccess() {
+    if (validAccess(session) && Date.parse(session.expires_at) - clock() > 300000) return;
+    if (!validRefresh(session)) return;
+    if (sessionRefresh) return sessionRefresh;
+    const revision = sessionRevision, previous = session;
+    const pending = (async () => {
+      const response = await gateway('/api/session/refresh', 'POST', undefined, true, previous.refresh_token);
+      if (revision !== sessionRevision) throw new Error('会话已更新，请重新读取记录。');
+      if (response.status === 401) { forgetSession(); return; }
+      if (!response.ok) throw new Error('登录续期暂未完成，请稍后重试；草稿已保留。');
+      const result = await response.json();
+      const updated = { ...previous, token: result.token, expires_at: sessionDate(result.expires_at) };
+      if (!result.authenticated || !validAccess(updated)) throw new Error('登录续期未完成，请稍后重试。');
+      if (revision !== sessionRevision) throw new Error('会话已更新，请重新读取记录。');
+      session = updated;
+      persistSession();
+    })();
+    sessionRefresh = pending;
+    try { await pending; } finally { if (sessionRefresh === pending) sessionRefresh = null; }
+  }
+
+  async function gateway(path, method = 'GET', body, unauthenticated = false, bearer = null) {
     gatewayURL(path);
+    const revision = sessionRevision;
     if (!unauthenticated && readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
+    if (!unauthenticated && validRefresh(session)
+        && (!validAccess(session) || Date.parse(session.expires_at) - clock() <= 300000)) {
+      await refreshAccess();
+      if (revision !== sessionRevision) throw new Error('会话已更新，请重新读取记录。');
+    }
     if (!unauthenticated && !validSession(session)) {
       forgetSession();
-      return json({ detail: '请重新输入访问名称。' }, 401);
+      return json({ detail: '请重新输入访问密码。' }, 401);
     }
-    const revision = sessionRevision;
     let endpoint = fallbackBase ? await selectGateway(revision) : apiBase;
     if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
     const timeoutMs = path === '/api/login' ? 12000
@@ -132,7 +188,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       redirect: 'error',
       headers: {
         Accept: 'application/json',
-        ...(!unauthenticated && session ? { Authorization: `Bearer ${session.token}` } : {}),
+        ...(bearer || !unauthenticated && session ? { Authorization: `Bearer ${bearer || session.token}` } : {}),
         ...(body !== undefined ? { 'Content-Type': 'application/json', 'X-Hub-Request': '1' } : {}),
       },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -143,7 +199,7 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       if (!fallbackBase || !error?.transportFailure || revision !== sessionRevision) throw error;
       selectedBase = null;
       // Login is stateless; GET is read-only. Never replay a write or billed POST.
-      if (method !== 'GET' && path !== '/api/login') throw error;
+      if (method !== 'GET' && !['/api/login', '/api/session/refresh'].includes(path)) throw error;
       endpoint = await selectGateway(revision, endpoint);
       if (revision !== sessionRevision) throw new Error('会话已更新，请重试当前操作。');
       response = await send(endpoint);
@@ -413,14 +469,15 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       if (!response.ok) return response;
       const connected = await response.clone().json();
       // The gateway returns Unix seconds; current-tab storage uses an ISO date.
-      const deadline = new Date(typeof connected.expires_at === 'number' && Number.isSafeInteger(connected.expires_at)
-        ? connected.expires_at * 1000 : typeof connected.expires_at === 'string' ? connected.expires_at : NaN);
       const authenticatedSession = { token: connected.token,
-        expires_at: Number.isFinite(deadline.getTime()) ? deadline.toISOString() : '' };
+        expires_at: sessionDate(connected.expires_at),
+        ...(connected.refresh_token ? { refresh_token: connected.refresh_token,
+          refresh_expires_at: sessionDate(connected.refresh_expires_at) } : {}) };
       if (revision !== sessionRevision) throw new Error('登录请求已取消，请重试。');
       if (!connected.authenticated || !validSession(authenticatedSession)) throw new Error('登录未完成，请重新输入口令。');
       session = authenticatedSession;
-      try { storage().setItem(tokenKey, JSON.stringify(session)); } catch { /* Current-tab memory login remains valid. */ }
+      rememberDevice = body?.remember_device === true;
+      persistSession();
       return response;
     }
     if (url.pathname === '/api/logout') {
@@ -435,11 +492,12 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
       return response;
     }
     if (readOnly) return json({ detail: '请连接记录后使用此操作。' }, 401);
+    if (url.pathname === '/api/discussion-models' && method === 'GET') return gateway(url.pathname);
     if (url.pathname === '/api/organization' && ['GET', 'POST'].includes(method)) {
       return gateway(url.pathname + url.search, method, body);
     }
     if (url.pathname === '/api/organization-index' && method === 'GET') return gateway(url.pathname + url.search);
-    if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问名称。' }, 401); }
+    if (!validSession(session)) { forgetSession(); return json({ detail: '请重新输入访问密码。' }, 401); }
     if (url.pathname === '/api/annotations') {
       const resource = url.searchParams.get('resource_id') || body?.resource_id;
       if (!identity(resource)) return json({ detail: '无效材料。' }, 422);
@@ -509,6 +567,11 @@ window.HUB_SHARED_TRANSPORT = (config, dependencies = {}) => {
           if (request.id !== recovering || request.module !== module || request.session_id !== body?.session_id
               || request.resource_id !== resource) throw new Error('已有请求与所选对话不一致，问题已保留。');
           if (request.message !== body?.message) return json({ detail: '这段对话还有未完成的问题，新问题已保留。' }, 409);
+          if (request.generation_intent && (body?.model || body?.reasoning_effort)
+              && (request.generation_intent.model !== body.model
+                  || request.generation_intent.reasoning_effort !== body.reasoning_effort)) {
+            return json({ detail: '这条问题已有固定模型和思考深度，请恢复原设置后读取结果。' }, 409);
+          }
           requestId = recovering;
           pendingQuestions.set(questionKey, requestId);
           if (['RUNNING', 'UNKNOWN'].includes(request.status) || (request.status === 'FAILED' && !request.failure_code)) {
@@ -572,9 +635,9 @@ if (sharedHubConfig) {
   window.HUB_REMOTE = window.HUB_SHARED_TRANSPORT(sharedHubConfig);
   document.addEventListener('DOMContentLoaded', () => {
     const label = document.querySelector('label[for=password]');
-    if (label) label.textContent = '访问用户';
+    if (label) label.textContent = '访问密码';
     const input = document.getElementById('password');
-    if (input) { input.autocomplete = 'off'; input.placeholder = '输入访问名称'; }
+    if (input) { input.autocomplete = 'current-password'; input.placeholder = '输入访问密码'; }
     const badge = document.querySelector('.private-badge');
     if (badge) badge.textContent = '共享保存';
   });
